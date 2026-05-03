@@ -18,8 +18,8 @@ UUID_CONTROL  = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
 UUID_DATA     = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 UUID_STATUS   = "6e400004-b5a3-f393-e0a9-e50e24dcca9e"
 
-PROBE_NAME     = "Saeed's S20 FE"  # Must match advertised name in firmware
-SCAN_TIMEOUT_S = 10.0
+PROBE_NAME     = "UART Service"  # Must match advertised name in firmware
+SCAN_TIMEOUT_S = 30.0
 
 
 async def find_probe() -> str | None:
