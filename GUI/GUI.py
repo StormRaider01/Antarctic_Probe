@@ -1,10 +1,20 @@
 """
-probe_gui.py
-============
-Standalone GUI for the Antarctic Probe BLE data transfer system.
-Built with CustomTkinter. Calls probe_interface.py for all BLE operations.
+GUI.py  —  Antarctic Probe Mission Control
+==========================================
+Standalone GUI for ESP-NOW probe data transfer.
+Backend logic lives in Backend.py (imported as bk).
+Theme colours are controlled by three variables at the top.
 
-Theme colours are controlled by three global variables at the top of this file.
+Modes:
+  - Prepare Dive : sends date/time to probe, resets memory
+  - Retrieve Data: triggers ESP-NOW sync from dongle
+
+Tabs:
+  - Raw Data  : scrollable table of all records
+  - Graph     : matplotlib chart with y-axis selector,
+                all-samples / individual-sample radio,
+                < > cycle buttons, and a constant-values panel
+  - Processing : Kiyuran's section for live data processing and ML model outputs (TBD)
 """
 
 import asyncio
@@ -14,15 +24,18 @@ from datetime import datetime
 from pathlib import Path
 
 import customtkinter as ctk
+import matplotlib
+matplotlib.use("TkAgg")
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib.pyplot as plt
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  THEME — change these three variables to restyle the entire app
-# ══════════════════════════════════════════════════════════════════════════════
-COLOUR_TOOLBAR   = "#1A3A5C"   # Top bar + side panel background (deep navy blue)
-COLOUR_APP_BG    = "#B2D8D8"   # Main window background (soft cyan)
-COLOUR_PANEL     = "#F5F0E8"   # Data area + terminal background (warm off-white)
+import Backend as bk
 
-# Derived accent colours — computed from the three above, no need to change
+# ======================================================================
+# Theme colours (for ease of control)
+COLOUR_TOOLBAR       = "#1A3A5C"
+COLOUR_APP_BG        = "#B2D8D8"
+COLOUR_PANEL         = "#F5F0E8"
 COLOUR_TOOLBAR_TEXT  = "#FFFFFF"
 COLOUR_TOOLBAR_HOVER = "#2A5A8C"
 COLOUR_PANEL_TEXT    = "#1A1A2E"
@@ -31,111 +44,70 @@ COLOUR_STATUS_ON     = "#00E676"
 COLOUR_STATUS_OFF    = "#EF5350"
 COLOUR_ACCENT        = "#1E90FF"
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  Mock probe interface — replace with real imports once BLE is ready
-# ══════════════════════════════════════════════════════════════════════════════
-import random, time
+# ======================================================================
+# Graph configuration
+SAMPLES_PER_GROUP = 15   # number of readings per fluorescence sample group
 
-MOCK_DEVICES = ["AntarcticProbe", "AntarcticProbe-Dev", "TestProbe-001"]
+# ======================================================================
 
-async def mock_get_status():
-    await asyncio.sleep(0.5)
-    return {"connected": True, "battery_pct": random.randint(60, 95), "status_raw": "OK"}
-
-async def mock_sync_probe(db_path=None, on_log=None):
-    records = []
-    total = random.randint(8, 20)
-    if on_log: on_log(f"Connecting to probe...")
-    await asyncio.sleep(0.8)
-    if on_log: on_log(f"Connected. Reading metadata — {total} records found.")
-    await asyncio.sleep(0.4)
-    if on_log: on_log("BLE transfer started.")
-    for i in range(total):
-        await asyncio.sleep(0.15)
-        ts = int(time.time() * 1000) + i * 60000
-        record = {
-            "sequence":     i,
-            "timestamp_ms": ts,
-            "temperature":  round(random.uniform(-2.0, 4.0), 2),
-            "depth":        round(random.uniform(10.0, 200.0), 2),
-            "salinity":     round(random.uniform(33.0, 35.5), 3),
-            "dissolved_o2": round(random.uniform(250.0, 380.0), 1),
-            "chlorophyll":  round(random.uniform(0.01, 2.50), 3),
-            "ph":           round(random.uniform(7.9, 8.2), 3),
-        }
-        records.append(record)
-        if on_log: on_log(f"  Packet {i+1}/{total} received  [seq={i}]")
-    await asyncio.sleep(0.3)
-    if on_log: on_log(f"Transfer complete. {total} records synced.")
-    return records
-
-async def mock_scan_devices():
-    await asyncio.sleep(1.2)
-    return MOCK_DEVICES
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Helper — run async from a background thread without blocking the GUI
-# ══════════════════════════════════════════════════════════════════════════════
-def run_async(coro, callback=None):
-    def _thread():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(coro)
-            if callback:
-                callback(result, None)
-        except Exception as exc:
-            if callback:
-                callback(None, exc)
-        finally:
-            loop.close()
-    t = threading.Thread(target=_thread, daemon=True)
-    t.start()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Main Application
-# ══════════════════════════════════════════════════════════════════════════════
 class ProbeApp(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("Antarctic Probe — Data Transfer")
-        self.geometry("1100x700")
-        self.minsize(900, 580)
+        self.title("Antarctic Probe — Mission Control")
+        self.geometry("1200x750")
+        self.minsize(950, 600)
         self.configure(fg_color=COLOUR_APP_BG)
         ctk.set_appearance_mode("dark")
 
+        # ==============================================================
+        # Initialise
         self._connected   = False
         self._busy        = False
         self._records     = []
         self._battery_pct = None
+        self._mode        = None          # "dive" | "retrieve"
+
+        # Graph state
+        self._graph_group_index = 0       # current sample-group index
+        self._graph_mode        = tk.StringVar(value="all")   # "all" | "single"
+        self._graph_y_var       = tk.StringVar(value="temperature")
 
         self._build_top_toolbar()
         self._build_body()
-        self._log("System initialised. Select a device and press Connect.")
+        self._log("System initialised. Connect probe, then choose a mode.")
 
-    # ── Top Toolbar ───────────────────────────────────────────────────────
+
+
+
+
+    # ==============================================================================
+    #  TOP TOOLBAR
+
     def _build_top_toolbar(self):
+        # bar 
         bar = ctk.CTkFrame(self, fg_color=COLOUR_TOOLBAR, corner_radius=0, height=52)
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
 
+        # Title
         ctk.CTkLabel(
             bar, text="❄  ANTARCTIC PROBE", font=("Courier New", 15, "bold"),
             text_color=COLOUR_TOOLBAR_TEXT, fg_color="transparent"
         ).pack(side="left", padx=18)
 
+        # Centering right
         right = ctk.CTkFrame(bar, fg_color="transparent")
         right.pack(side="right", padx=16)
 
+        # Battery status (initial state)
         self._battery_label = ctk.CTkLabel(
             right, text="🔋  ---%", font=("Courier New", 12),
             text_color=COLOUR_TOOLBAR_TEXT, fg_color="transparent"
         )
         self._battery_label.pack(side="right", padx=(12, 0))
 
+        # Connected status (initial state)
         self._status_dot = ctk.CTkLabel(
             right, text="●", font=("Arial", 18),
             text_color=COLOUR_STATUS_OFF, fg_color="transparent"
@@ -148,54 +120,50 @@ class ProbeApp(ctk.CTk):
         )
         self._status_text.pack(side="right")
 
-    # ── Body ──────────────────────────────────────────────────────────────
+
+
+
+
+
+    # =============================================================================
+    # Body
+
     def _build_body(self):
+        # body
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True)
         self._build_sidebar(body)
         self._build_main_panel(body)
 
-    # ── Sidebar ───────────────────────────────────────────────────────────
+
+
+
+
+    # ==============================================================================
+    # Side bar
+
     def _build_sidebar(self, parent):
+        # side
         side = ctk.CTkFrame(parent, fg_color=COLOUR_TOOLBAR, corner_radius=0, width=210)
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
 
         pad = {"padx": 16, "pady": 6}
 
-        ctk.CTkLabel(
-            side, text="BLE DEVICE", font=("Courier New", 10, "bold"),
-            text_color="#8AAFC8", fg_color="transparent"
-        ).pack(anchor="w", padx=16, pady=(20, 2))
+        def section(text):
+            ctk.CTkFrame(side, fg_color="#2A4A6C", height=1).pack(fill="x", padx=16, pady=(12, 4))
+            ctk.CTkLabel(
+                side, text=text, font=("Courier New", 10, "bold"),
+                text_color="#8AAFC8", fg_color="transparent"
+            ).pack(anchor="w", padx=16, pady=(0, 2))
 
-        self._device_var = ctk.StringVar(value="Select device...")
-        self._device_dropdown = ctk.CTkOptionMenu(
-            side,
-            variable=self._device_var,
-            values=["Select device..."],
-            fg_color=COLOUR_TOOLBAR_HOVER,
-            button_color=COLOUR_TOOLBAR_HOVER,
-            button_hover_color=COLOUR_ACCENT,
-            text_color=COLOUR_TOOLBAR_TEXT,
-            font=("Courier New", 11),
-            width=178,
-        )
-        self._device_dropdown.pack(**pad)
+        
 
-        self._scan_btn = ctk.CTkButton(
-            side, text="⟳  Scan", width=178,
-            fg_color=COLOUR_TOOLBAR_HOVER, hover_color=COLOUR_ACCENT,
-            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
-            corner_radius=6, command=self._on_scan
-        )
-        self._scan_btn.pack(**pad)
 
-        ctk.CTkFrame(side, fg_color="#2A4A6C", height=1).pack(fill="x", padx=16, pady=14)
+        # ==============================================================================
+        # Connection controls
 
-        ctk.CTkLabel(
-            side, text="ACTIONS", font=("Courier New", 10, "bold"),
-            text_color="#8AAFC8", fg_color="transparent"
-        ).pack(anchor="w", padx=16, pady=(0, 2))
+        section("CONNECTION")
 
         self._connect_btn = ctk.CTkButton(
             side, text="⏻  Connect", width=178,
@@ -205,21 +173,47 @@ class ProbeApp(ctk.CTk):
         )
         self._connect_btn.pack(**pad)
 
-        self._sync_btn = ctk.CTkButton(
-            side, text="↓  Sync Data", width=178,
+
+
+        # ==============================================================================
+        # Probe Modes
+
+        section("PROBE MODE")
+
+        # Sets probe to dive mode (resets memory, sets timestamp)
+        self._dive_btn = ctk.CTkButton(
+            side, text="↑  Prepare Dive", width=178,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color="#1565C0",
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
+            corner_radius=6, command=self._on_prepare_dive, state="disabled"
+        )
+        self._dive_btn.pack(**pad)
+
+        # Sets probe to retrieval mode (triggers ESP-NOW sync with dongle)
+        self._retrieve_btn = ctk.CTkButton(
+            side, text="↓  Retrieve Data", width=178,
             fg_color=COLOUR_TOOLBAR_HOVER, hover_color=COLOUR_ACCENT,
             text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
-            corner_radius=6, command=self._on_sync, state="disabled"
+            corner_radius=6, command=self._on_retrieve_data, state="disabled"
         )
-        self._sync_btn.pack(**pad)
+        self._retrieve_btn.pack(**pad)
 
-        ctk.CTkFrame(side, fg_color="#2A4A6C", height=1).pack(fill="x", padx=16, pady=14)
 
-        ctk.CTkLabel(
-            side, text="FILE", font=("Courier New", 10, "bold"),
-            text_color="#8AAFC8", fg_color="transparent"
-        ).pack(anchor="w", padx=16, pady=(0, 2))
 
+
+        # ==============================================================================
+        # File
+        section("FILE")
+
+        # Saves data to CSV with file dialog
+        ctk.CTkButton(
+            side, text="🗃️  Save to File", width=178,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color=COLOUR_ACCENT,
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
+            corner_radius=6, command=self._on_save_file
+        ).pack(**pad)
+
+        # Loads data from CSV with file dialog (appended to existing records)
         ctk.CTkButton(
             side, text="📂  Load from File", width=178,
             fg_color=COLOUR_TOOLBAR_HOVER, hover_color=COLOUR_ACCENT,
@@ -227,6 +221,7 @@ class ProbeApp(ctk.CTk):
             corner_radius=6, command=self._on_load_file
         ).pack(**pad)
 
+        # Clears the raw data tab and graph
         ctk.CTkButton(
             side, text="✕  Clear Display", width=178,
             fg_color=COLOUR_TOOLBAR_HOVER, hover_color="#C62828",
@@ -235,30 +230,101 @@ class ProbeApp(ctk.CTk):
         ).pack(**pad)
 
         ctk.CTkLabel(
-            side, text="v1.0 — SS1", font=("Courier New", 9),
+            side, text="v2.0 — SS1", font=("Courier New", 9),
             text_color="#4A6A8A", fg_color="transparent"
         ).pack(side="bottom", pady=10)
 
-    # ── Main Panel ────────────────────────────────────────────────────────
+
+
+
+
+
+
+    # ==============================================================================
+    # Main Panel with Tabs
+
     def _build_main_panel(self, parent):
+        # main
         main = ctk.CTkFrame(parent, fg_color=COLOUR_APP_BG, corner_radius=0)
         main.pack(side="left", fill="both", expand=True, padx=12, pady=12)
 
+
+
+
+        # TabView
+        self._tabview = ctk.CTkTabview(
+            main,
+            fg_color=COLOUR_PANEL,
+            segmented_button_fg_color=COLOUR_TOOLBAR,
+            segmented_button_selected_color=COLOUR_ACCENT,
+            segmented_button_selected_hover_color="#1565C0",
+            segmented_button_unselected_color=COLOUR_TOOLBAR,
+            segmented_button_unselected_hover_color=COLOUR_TOOLBAR_HOVER,
+            text_color=COLOUR_TOOLBAR_TEXT,
+        )
+        self._tabview.pack(fill="both", expand=True, pady=(0, 10))
+
+        self._tabview.add("Raw Data")
+        self._tabview.add("Graph")
+
+
+
+        """
+        =====================================================================================================
+        self._tabview.add("Processing")   # Kiyuran's section for live data processing and ML model outputs (TBD)
+        self._build_processing_tab(self._tabview.tab("Processing"))   # Kiyuran's section (TBD)
+        =====================================================================================================
+        """
+
+
+
+
+        self._build_raw_tab(self._tabview.tab("Raw Data"))
+        self._build_graph_tab(self._tabview.tab("Graph"))
+
+
+
+        # # ==============================================================================
+        # Status log (shared, below tabs)
         ctk.CTkLabel(
-            main, text="RECEIVED DATA", font=("Courier New", 10, "bold"),
+            main, text="STATUS LOG", font=("Courier New", 10, "bold"),
             text_color=COLOUR_TOOLBAR, fg_color="transparent"
         ).pack(anchor="w", padx=4, pady=(0, 4))
 
-        data_frame = ctk.CTkFrame(main, fg_color=COLOUR_PANEL, corner_radius=8)
-        data_frame.pack(fill="both", expand=True, pady=(0, 10))
+        # term_frame
+        term_frame = ctk.CTkFrame(main, fg_color=COLOUR_PANEL, corner_radius=8, height=160)
+        term_frame.pack(fill="x")
+        term_frame.pack_propagate(False)
+
+        self._term_text = tk.Text(
+            term_frame,
+            bg=COLOUR_PANEL, fg=COLOUR_TERMINAL_TEXT,
+            font=("Courier New", 11),
+            relief="flat", bd=0, wrap="word", state="disabled",
+        )
+        self._term_text.pack(side="left", fill="both", expand=True, padx=10, pady=8)
+
+        # term_scroll (scroll bar)
+        term_scroll = ctk.CTkScrollbar(term_frame, command=self._term_text.yview)
+        term_scroll.pack(side="right", fill="y", pady=8)
+        self._term_text.configure(yscrollcommand=term_scroll.set)
+
+
+
+
+
+    # ==============================================================================
+    # Raw Data Tab
+    def _build_raw_tab(self, tab):
+        # data_frame
+        data_frame = ctk.CTkFrame(tab, fg_color=COLOUR_PANEL, corner_radius=0)
+        data_frame.pack(fill="both", expand=True)
 
         self._data_text = tk.Text(
             data_frame,
             bg=COLOUR_PANEL, fg=COLOUR_PANEL_TEXT,
             font=("Courier New", 11),
-            relief="flat", bd=0,
-            wrap="none",
-            state="disabled",
+            relief="flat", bd=0, wrap="none", state="disabled",
             selectbackground=COLOUR_ACCENT,
         )
         self._data_text.pack(side="left", fill="both", expand=True, padx=10, pady=8)
@@ -268,39 +334,218 @@ class ProbeApp(ctk.CTk):
         self._data_text.configure(yscrollcommand=data_scroll.set)
         self._write_data_header()
 
-        ctk.CTkLabel(
-            main, text="STATUS LOG", font=("Courier New", 10, "bold"),
-            text_color=COLOUR_TOOLBAR, fg_color="transparent"
-        ).pack(anchor="w", padx=4, pady=(0, 4))
 
-        term_frame = ctk.CTkFrame(main, fg_color=COLOUR_PANEL, corner_radius=8, height=180)
-        term_frame.pack(fill="x")
-        term_frame.pack_propagate(False)
 
-        self._term_text = tk.Text(
-            term_frame,
-            bg=COLOUR_PANEL, fg=COLOUR_TERMINAL_TEXT,
-            font=("Courier New", 11),
-            relief="flat", bd=0,
-            wrap="word",
-            state="disabled",
+
+
+    # ==============================================================================
+    # Graph tab
+    def _build_graph_tab(self, tab):
+        # Controls row
+        ctrl = ctk.CTkFrame(tab, fg_color="transparent")
+        ctrl.pack(fill="x", padx=8, pady=(8, 4))
+
+        ctk.CTkLabel(ctrl, text="Y-Axis:", font=("Courier New", 11),
+                     text_color=COLOUR_PANEL_TEXT).pack(side="left", padx=(0, 6))
+
+        # drop down options for y-axis selector
+        # Graph will automiatically update when selection changes
+        y_options = ["temperature", "pressure", "excitation", "fluorescence"]
+        self._y_menu = ctk.CTkOptionMenu(
+            ctrl, variable=self._graph_y_var, values=y_options,
+            command=lambda _: self._refresh_graph(),
+            fg_color=COLOUR_TOOLBAR, button_color=COLOUR_TOOLBAR_HOVER,
+            button_hover_color=COLOUR_ACCENT, text_color=COLOUR_TOOLBAR_TEXT,
+            font=("Courier New", 11), width=150,
         )
-        self._term_text.pack(side="left", fill="both", expand=True, padx=10, pady=8)
+        self._y_menu.pack(side="left", padx=(0, 20))
 
-        term_scroll = ctk.CTkScrollbar(term_frame, command=self._term_text.yview)
-        term_scroll.pack(side="right", fill="y", pady=8)
-        self._term_text.configure(yscrollcommand=term_scroll.set)
 
-    # ── Helpers ───────────────────────────────────────────────────────────
+
+
+        # ==============================================================================
+        # Radio buttons for which view, ALL or SINGLE group
+        ctk.CTkLabel(ctrl, text="View:", font=("Courier New", 11),
+                     text_color=COLOUR_PANEL_TEXT).pack(side="left", padx=(0, 4))
+
+        for label, val in [("All Samples", "all"), ("Individual Group", "single")]:
+            ctk.CTkRadioButton(
+                ctrl, text=label, variable=self._graph_mode, value=val,
+                command=self._on_graph_mode_change,
+                font=("Courier New", 11), text_color=COLOUR_PANEL_TEXT,
+                fg_color=COLOUR_ACCENT, border_color=COLOUR_TOOLBAR,
+            ).pack(side="left", padx=6)
+
+
+
+
+        # ==============================================================================
+        # Cycle buttons 
+        # Shown only in single mode
+        self._cycle_frame = ctk.CTkFrame(ctrl, fg_color="transparent")
+        self._cycle_frame.pack(side="left", padx=(12, 0))
+
+        self._prev_btn = ctk.CTkButton(
+            self._cycle_frame, text="◀", width=36,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color=COLOUR_ACCENT,
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
+            corner_radius=4, command=self._on_prev_group
+        )
+        self._prev_btn.pack(side="left", padx=2)
+
+        # Only initially shows 1/1. When data loaded it will be updated
+        self._group_label = ctk.CTkLabel(
+            self._cycle_frame, text="Sample Group 1/1", font=("Courier New", 11),
+            text_color=COLOUR_PANEL_TEXT
+        )
+        self._group_label.pack(side="left", padx=6)
+
+        self._next_btn = ctk.CTkButton(
+            self._cycle_frame, text="▶", width=36,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color=COLOUR_ACCENT,
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
+            corner_radius=4, command=self._on_next_group
+        )
+        self._next_btn.pack(side="left", padx=2)
+        self._cycle_frame.pack_forget()   # hidden until single mode selected
+
+
+
+
+        # ==============================================================================
+        # Matplotlib canvas
+        self._fig, self._ax = plt.subplots(figsize=(8, 3.5))
+        self._fig.patch.set_facecolor(COLOUR_PANEL)
+        self._ax.set_facecolor("#EDE8E0")
+        self._canvas = FigureCanvasTkAgg(self._fig, master=tab)
+        self._canvas.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=(0, 4))
+
+        # Constants panel (shown in single mode)
+        self._const_frame = ctk.CTkFrame(tab, fg_color=COLOUR_TOOLBAR, corner_radius=6, height=40)
+        self._const_label = ctk.CTkLabel(
+            self._const_frame, text="", font=("Courier New", 11),
+            text_color=COLOUR_TOOLBAR_TEXT, fg_color="transparent"
+        )
+        self._const_label.pack(padx=12, pady=6)
+        # hidden until single mode
+
+    
+
+
+
+
+    # ==============================================================================
+    # Graph logic
+    def _on_graph_mode_change(self):
+        # Display or hide cycle buttons
+        if self._graph_mode.get() == "single":
+            self._cycle_frame.pack(side="left", padx=(12, 0))
+            self._const_frame.pack(fill="x", padx=8, pady=(0, 6))
+        else:
+            self._cycle_frame.pack_forget()
+            self._const_frame.pack_forget()
+        self._graph_group_index = 0
+        self._refresh_graph()
+
+    # Number of sample groups
+    def _num_groups(self):
+        if not self._records:
+            return 1
+        return max(1, -(-len(self._records) // SAMPLES_PER_GROUP))  # ceiling div
+
+    def _on_prev_group(self):
+        if self._graph_group_index > 0:
+            self._graph_group_index -= 1
+            self._refresh_graph()
+
+    def _on_next_group(self):
+        if self._graph_group_index < self._num_groups() - 1:
+            self._graph_group_index += 1
+            self._refresh_graph()
+
+    def _refresh_graph(self):
+        if not self._records:
+            return
+
+        y_key  = self._graph_y_var.get()
+        y_labels = {
+            "temperature":  "Temperature (°C)",
+            "pressure":     "Pressure (dbar)",
+            "excitation":   "Excitation (raw ADC)",
+            "fluorescence": "Fluorescence (raw ADC)",
+        }
+
+        if self._graph_mode.get() == "all":
+            records = self._records
+            title   = f"{y_key.capitalize()} — All Samples"
+        else:
+            n = self._num_groups()
+            start  = self._graph_group_index * SAMPLES_PER_GROUP
+            end    = start + SAMPLES_PER_GROUP
+            records = self._records[start:end]
+            title  = f"{y_key.capitalize()} — Group {self._graph_group_index + 1}/{n}"
+            self._group_label.configure(text=f"Group {self._graph_group_index + 1}/{n}")
+
+            # Update constants panel from first record in group
+            # Displays constants of whatever is not displayed on y-axis
+            if records:
+                r = records[0]
+                const_keys = [k for k in ["temperature", "pressure", "excitation", "fluorescence"] if k != y_key]
+                parts = [f"{k.capitalize()}: {r[k]:.2f}" for k in const_keys if k in r]
+                self._const_label.configure(text="   |   ".join(parts))
+
+
+
+
+        xs = [r["timestamp_ms"] for r in records]
+        ys = [r.get(y_key, 0) for r in records]
+
+
+
+
+        # ==============================================================================
+        # Graph styling
+        self._ax.clear()
+        self._ax.plot(xs, ys, color=COLOUR_ACCENT, linewidth=1.8, marker="o", markersize=3)
+        self._ax.set_title(title, fontsize=10, color=COLOUR_PANEL_TEXT, pad=6)
+        self._ax.set_xlabel("Time since start (ms)", fontsize=9, color=COLOUR_PANEL_TEXT)
+        self._ax.set_ylabel(y_labels.get(y_key, y_key), fontsize=9, color=COLOUR_PANEL_TEXT)
+        self._ax.tick_params(colors=COLOUR_PANEL_TEXT, labelsize=8)
+        for spine in self._ax.spines.values():
+            spine.set_edgecolor("#CCCCCC")
+        self._ax.set_facecolor("#EDE8E0")
+        self._fig.patch.set_facecolor(COLOUR_PANEL)
+        self._fig.tight_layout()
+        self._canvas.draw()
+
+
+
+
+
+
+
+
+
+
+
+
+    # ==============================================================================
+    # Helping classes (backend)
+    # ==============================================================================
+
+    # Writes the header line for the raw data tab
     def _write_data_header(self):
         header = (
-            f"{'SEQ':>5}  {'TIMESTAMP':>14}  {'TEMP (°C)':>10}  "
-            f"{'DEPTH (m)':>10}  {'SAL (PSU)':>10}  "
-            f"{'O2 (µmol/L)':>12}  {'CHLO (µg/L)':>12}  {'pH':>7}\n"
+            f"{'SEQ':>5}  {'TIME (ms)':>12}  {'TEMP (°C)':>10}  "
+            f"{'PRESSURE':>10}  {'EXCITATION':>12}  {'FLUORESCENCE':>14}\n"
         )
-        divider = "─" * 95 + "\n"
+        divider = "─" * (len(header) - 1) + "\n"
         self._data_append(header + divider)
 
+
+
+    # Logs a message to the status log with timestamp
+    # eg. "[12:34:56] Connected to probe. Battery: 85%"
     def _log(self, msg):
         def _do():
             ts = datetime.now().strftime("%H:%M:%S")
@@ -310,6 +555,9 @@ class ProbeApp(ctk.CTk):
             self._term_text.see("end")
         self.after(0, _do)
 
+
+    # Appends a line of text to the raw data tab
+    # Used when new records are received
     def _data_append(self, text):
         def _do():
             self._data_text.configure(state="normal")
@@ -318,108 +566,165 @@ class ProbeApp(ctk.CTk):
             self._data_text.see("end")
         self.after(0, _do)
 
+
+
+    # Displays a list of records in the raw data tab, and refreshes the graph
     def _display_records(self, records):
         for r in records:
-            ts_s = r["timestamp_ms"] / 1000
-            dt   = datetime.fromtimestamp(ts_s).strftime("%H:%M:%S")
             line = (
-                f"{r['sequence']:>5}  {dt:>14}  {r['temperature']:>10.2f}  "
-                f"{r['depth']:>10.2f}  {r['salinity']:>10.3f}  "
-                f"{r['dissolved_o2']:>12.1f}  {r['chlorophyll']:>12.3f}  {r['ph']:>7.3f}\n"
+                f"{r['sequence']:>5}  {r['timestamp_ms']:>12}  "
+                f"{r['temperature']:>10.2f}  {r['pressure']:>10.2f}  "
+                f"{r['excitation']:>12.3f}  {r['fluorescence']:>14.3f}\n"
             )
             self._data_append(line)
+        self._refresh_graph()
 
+
+
+    # Updates the connected status in the toolbar, and battery percentage
     def _set_connected(self, connected, battery=None):
         def _do():
             self._connected = connected
             if connected:
                 self._status_dot.configure(text_color=COLOUR_STATUS_ON)
                 self._status_text.configure(text="CONNECTED")
-                self._sync_btn.configure(state="normal")
+                self._dive_btn.configure(state="normal")
+                self._retrieve_btn.configure(state="normal")
                 self._connect_btn.configure(text="⏻  Disconnect")
             else:
                 self._status_dot.configure(text_color=COLOUR_STATUS_OFF)
                 self._status_text.configure(text="DISCONNECTED")
-                self._sync_btn.configure(state="disabled")
+                self._dive_btn.configure(state="disabled")
+                self._retrieve_btn.configure(state="disabled")
                 self._connect_btn.configure(text="⏻  Connect")
-            if battery is not None:
-                self._battery_label.configure(text=f"🔋  {battery}%")
-            else:
-                self._battery_label.configure(text="🔋  ---%")
+            batt = battery if battery is not None else self._battery_pct        # if battery was obtained
+            self._battery_label.configure(text=f"🔋  {batt}%" if batt is not None else "🔋  ---%")
         self.after(0, _do)
 
-    def _set_busy(self, busy, btn_text=None):
+
+
+    # Sets status of app to busy
+    # When busy, some buttons are disabled and status log shows ongoing action
+    # This helps prevent multiple actions being triggered at once
+    def _set_busy(self, busy):
         def _do():
             self._busy = busy
             state = "disabled" if busy else "normal"
-            self._scan_btn.configure(state=state)
             self._connect_btn.configure(state=state)
-            if not busy and btn_text:
-                self._connect_btn.configure(text=btn_text)
+            if not busy and self._connected:
+                self._dive_btn.configure(state="normal")
+                self._retrieve_btn.configure(state="normal")
         self.after(0, _do)
 
-    # ── Handlers ──────────────────────────────────────────────────────────
-    def _on_scan(self):
-        if self._busy: return
-        self._log("Scanning for BLE devices...")
-        self._set_busy(True)
 
-        def _done(devices, err):
-            self._set_busy(False)
-            if err or not devices:
-                self._log(f"Scan failed or no devices found: {err}")
-                return
-            self._device_dropdown.configure(values=devices)
-            self._device_var.set(devices[0])
-            self._log(f"Found {len(devices)} device(s): {', '.join(devices)}")
 
-        run_async(mock_scan_devices(), _done)
 
+
+
+
+
+
+    # ==============================================================================
+    # Button actions
+    # ==============================================================================
+
+    # Connect button
     def _on_connect(self):
-        if self._busy: return
+        if self._busy:
+            return
         if self._connected:
-            self._set_connected(False)
+            self._set_connected(False, battery=None)
+            self._battery_pct = None
             self._log("Disconnected from probe.")
             return
-        device = self._device_var.get()
-        if device == "Select device...":
-            self._log("ERROR: No device selected. Scan first.")
-            return
-        self._log(f"Connecting to '{device}'...")
+
+        self._log("Connecting to probe dongle...")
         self._set_busy(True)
 
+
         def _done(result, err):
-            self._set_busy(False, btn_text="⏻  Disconnect")
+            self._set_busy(False)
             if err or not result:
                 self._log(f"Connection failed: {err}")
                 self._set_connected(False)
                 return
             battery = result.get("battery_pct")
+            self._battery_pct = battery
             self._set_connected(True, battery=battery)
-            self._log(f"Connected to '{device}'. Battery: {battery}%")
+            self._log(f"Connected. Probe battery: {battery}%")
 
-        run_async(mock_get_status(), _done)
+        bk.run_async(bk.mock_get_status(), _done)
 
-    def _on_sync(self):
-        if self._busy or not self._connected: return
-        self._log("Starting data sync...")
+
+
+    # Prepare Dive button
+    def _on_prepare_dive(self):
+        if self._busy or not self._connected:
+            return
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H:%M:%S")
+        self._log(f"Sending PREPARE DIVE — date={date_str}, time={time_str}")
+        self._log("Probe memory reset command sent.")
+        # TODO: send actual ESP-NOW command to dongle with datetime + reset flag
+
+
+
+    # Retrieve Data button
+    def _on_retrieve_data(self):
+        if self._busy or not self._connected:
+            return
+        self._log("Starting data retrieval via ESP-NOW...")
         self._set_busy(True)
 
-        def _log_cb(msg): self._log(msg)
+        def _log_cb(msg):
+            self._log(msg)
 
         async def _do_sync():
-            return await mock_sync_probe(on_log=_log_cb)
+            return await bk.mock_sync_probe(on_log=_log_cb)
 
         def _done(records, err):
-            self._set_busy(False, btn_text="⏻  Disconnect")
+            self._set_busy(False)
             if err or records is None:
                 self._log(f"Sync failed: {err}")
                 return
             self._records.extend(records)
             self._display_records(records)
+            self._log(f"Retrieval complete — {len(records)} records received.")
 
-        run_async(_do_sync(), _done)
+        bk.run_async(_do_sync(), _done)
 
+
+
+    # Save to file button
+    def _on_save_file(self):
+        from tkinter import filedialog
+        import csv
+        if not self._records:
+            self._log("No data to save.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save probe data",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+        try:
+            with open(path, mode="w", newline="") as f:
+                fieldnames = ["sequence", "timestamp_ms", "temperature",
+                              "pressure", "excitation", "fluorescence"]
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for r in self._records:
+                    writer.writerow({k: r[k] for k in fieldnames})
+            self._log(f"Saved {len(self._records)} records → {Path(path).name}")
+        except Exception as e:
+            self._log(f"Save failed: {e}")
+
+
+
+    # Load from file button
     def _on_load_file(self):
         from tkinter import filedialog
         import csv
@@ -427,37 +732,44 @@ class ProbeApp(ctk.CTk):
             title="Load probe data",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
-        if not path: return
-        self._log(f"Loading from file: {Path(path).name}")
+        if not path:
+            return
         try:
             with open(path, newline="") as f:
                 reader = csv.DictReader(f)
                 records = []
-                for row in reader:
+                for i, row in enumerate(reader):
                     records.append({
-                        "sequence":     int(row.get("sequence", 0)),
+                        "sequence":     int(row.get("sequence", i)),
                         "timestamp_ms": int(row.get("timestamp_ms", 0)),
-                        "temperature":  float(row.get("temperature_C", 0)),
-                        "depth":        float(row.get("depth_m", 0)),
-                        "salinity":     float(row.get("salinity_PSU", 0)),
-                        "dissolved_o2": float(row.get("dissolved_o2_umolL", 0)),
-                        "chlorophyll":  float(row.get("chlorophyll_ugL", 0)),
-                        "ph":           float(row.get("ph", 0)),
+                        "temperature":  float(row.get("temperature", 0)),
+                        "pressure":     float(row.get("pressure", 0)),
+                        "excitation":   float(row.get("excitation", 0)),
+                        "fluorescence": float(row.get("fluorescence", 0)),
                     })
+            self._records.extend(records)
             self._display_records(records)
-            self._log(f"Loaded {len(records)} records from file.")
+            self._log(f"Loaded {len(records)} records from {Path(path).name}")
         except Exception as e:
-            self._log(f"Failed to load file: {e}")
+            self._log(f"Load failed: {e}")
 
+
+
+    # Clear display button
     def _on_clear(self):
         self._data_text.configure(state="normal")
         self._data_text.delete("1.0", "end")
         self._data_text.configure(state="disabled")
         self._write_data_header()
         self._records.clear()
+        self._ax.clear()
+        self._canvas.draw()
         self._log("Display cleared.")
 
 
+
+
+# ==============================================================================
 if __name__ == "__main__":
     app = ProbeApp()
     app.mainloop()

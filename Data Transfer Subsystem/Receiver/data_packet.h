@@ -31,10 +31,7 @@
 #pragma once
 #include <stdint.h>
 
-
-// =============================================================================
-
-// Packet type tags 
+// ── Packet type tags ───────────────────────────────────────────────────────
 // The first byte of every ESP-NOW payload identifies what follows.
 #define PKT_TYPE_HEADER   0xA0   // SessionHeader_t
 #define PKT_TYPE_RECORD   0xA1   // ProbeRecord_t
@@ -42,9 +39,7 @@
 #define PKT_TYPE_ACK      0xAC   // Sent by receiver back to probe (acknowledgement)
 #define PKT_TYPE_NACK     0xAE   // Sent by receiver — requests retransmit
 
-// =============================================================================
-
-// Session header 
+// ── Session header ─────────────────────────────────────────────────────────
 // Sent once before any records. Receiver uses record_count to track progress.
 typedef struct __attribute__((packed)) {
     uint8_t  pkt_type;          // Always PKT_TYPE_HEADER (0xA0)
@@ -54,10 +49,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  reserved[2];       // Pad to 12 bytes — set to 0
 } SessionHeader_t;
 
-// =============================================================================
-
-// Per-record payload 
-// This is ProbeRecord_t which is mentioned in the other files
+// ── Per-record payload ─────────────────────────────────────────────────────
 typedef struct __attribute__((packed)) {
     uint8_t  pkt_type;          // Always PKT_TYPE_RECORD (0xA1)
     uint32_t entry_num;         // Monotonically increasing record index (0-based)
@@ -69,31 +61,23 @@ typedef struct __attribute__((packed)) {
     uint8_t  checksum;          // XOR of all preceding bytes in this struct
 } ProbeRecord_t;
 
-// =============================================================================
-
-// EOF marker 
+// ── EOF marker ────────────────────────────────────────────────────────────
 // Just the type byte — no other payload needed.
 typedef struct __attribute__((packed)) {
     uint8_t pkt_type;           // Always PKT_TYPE_EOF (0xA2)
 } EofMarker_t;
 
-// =============================================================================
-
-// ACK/NACK from receiver 
+// ── ACK/NACK from receiver ────────────────────────────────────────────────
 typedef struct __attribute__((packed)) {
     uint8_t  pkt_type;          // PKT_TYPE_ACK or PKT_TYPE_NACK
     uint32_t entry_num;         // Which record this is acknowledging / requesting retry
 } ReceiverAck_t;
 
-// =============================================================================
-
-// Compile-time size checks 
+// ── Compile-time size checks ───────────────────────────────────────────────
 static_assert(sizeof(SessionHeader_t) == 12, "SessionHeader_t size mismatch");
 static_assert(sizeof(ProbeRecord_t)   == 26, "ProbeRecord_t size mismatch");
 
-// =============================================================================
-
-// Checksum helper 
+// ── Checksum helper ───────────────────────────────────────────────────────
 // XOR of all bytes in buf[0..len-1].
 // For ProbeRecord_t: call with len = sizeof(ProbeRecord_t) - 1 (exclude last byte).
 static inline uint8_t xor_checksum(const uint8_t* buf, uint8_t len) {
@@ -102,9 +86,7 @@ static inline uint8_t xor_checksum(const uint8_t* buf, uint8_t len) {
     return cs;
 }
 
-// =============================================================================
-
-//  Record builder 
+// ── Record builder ────────────────────────────────────────────────────────
 // Fills and checksums a ProbeRecord_t from real-unit values.
 // Call this when building records to be stored in FRAM or sent over ESP-NOW.
 static inline ProbeRecord_t build_record(
@@ -115,7 +97,7 @@ static inline ProbeRecord_t build_record(
     float    excitation_raw,
     float    fluorescence_raw
 ) {
-    ProbeRecord_t r;    // r is a struct of type ProbeRecord_t
+    ProbeRecord_t r;
     r.pkt_type         = PKT_TYPE_RECORD;
     r.entry_num        = entry_num;
     r.ms_since_start   = ms_since_start;
@@ -127,11 +109,7 @@ static inline ProbeRecord_t build_record(
     return r;
 }
 
-// =============================================================================
-
-// Checksum validator 
+// ── Checksum validator ────────────────────────────────────────────────────
 static inline bool record_valid(const ProbeRecord_t* r) {
     return xor_checksum((const uint8_t*)r, sizeof(*r) - 1) == r->checksum;
 }
-
-// =============================================================================

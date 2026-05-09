@@ -1,88 +1,129 @@
 """
 probe_interface.py
-Public API exposed to Joshua's GUI. This is the only file Joshua's code should import.
-Hides all BLE and parsing internals behind simple async functions.
+==================
+Public API for Joshua's GUI. Reads CSV records from the receiver dongle
+over USB Serial and stores them to SQLite.
+
+The receiver dongle outputs lines like:
+    DATA:0,0,2.50,10.00,512.00,128.00
+    DATA:1,5000,2.55,11.00,512.00,130.50
+    [SESSION] ...
+    [ERROR]   ...
+
+This module filters for DATA: lines, parses them, and stores them.
+All other lines are available via the log_callback for display in a GUI pane.
 """
 
-import asyncio
+import serial
+import sqlite3
 import logging
 from pathlib import Path
-from dataclasses import asdict
-
-import ble_client
-import packet_parser
-import data_store
+from dataclasses import dataclass, asdict
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PORT    = "COM3"         # Windows — change to /dev/ttyUSB0 on Linux/Mac
+DEFAULT_BAUD    = 115200
+DEFAULT_DB_PATH = Path("probe_data.db")
 
-async def sync_probe(
-    db_path: Path = data_store.DEFAULT_DB_PATH,
+CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS probe_records (
+    entry_num        INTEGER PRIMARY KEY,
+    ms_since_start   INTEGER NOT NULL,
+    temperature_c    REAL,
+    pressure_dbar    REAL,
+    excitation_raw   REAL,
+    fluorescence_raw REAL
+);
+"""
+
+
+@dataclass
+class ProbeRecord:
+    entry_num:        int
+    ms_since_start:   int
+    temperature_c:    float
+    pressure_dbar:    float
+    excitation_raw:   float
+    fluorescence_raw: float
+
+
+def init_db(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path)
+    conn.execute(CREATE_TABLE_SQL)
+    conn.commit()
+    return conn
+
+
+def _parse_data_line(line: str) -> ProbeRecord | None:
+    """Parse a 'DATA:...' line from the receiver dongle."""
+    try:
+        _, csv = line.split("DATA:", 1)
+        parts = csv.strip().split(",")
+        if len(parts) != 6:
+            return None
+        return ProbeRecord(
+            entry_num        = int(parts[0]),
+            ms_since_start   = int(parts[1]),
+            temperature_c    = float(parts[2]),
+            pressure_dbar    = float(parts[3]),
+            excitation_raw   = float(parts[4]),
+            fluorescence_raw = float(parts[5]),
+        )
+    except (ValueError, IndexError):
+        return None
+
+
+def sync_probe(
+    port: str = DEFAULT_PORT,
+    db_path: Path = DEFAULT_DB_PATH,
+    log_callback=None,          # optional fn(str) — called with non-DATA lines
+    on_record=None,             # optional fn(ProbeRecord) — called live per record
 ) -> list[dict]:
     """
-    Full sync workflow:
-      1. Scan and find probe
-      2. Connect
-      3. Read metadata
-      4. Stream all DATA packets
-      5. Parse and delta-decode
-      6. Persist to SQLite
-      7. Disconnect
-    Returns list of record dicts (ready for Joshua's GUI / pandas DataFrame).
-    Raises ConnectionError if probe not found.
+    Open the Serial port, read until EOF marker is seen, persist records.
+    Returns list of record dicts for the GUI.
+
+    `log_callback`  — GUI can pass a function to display [SESSION]/[ERROR] lines.
+    `on_record`     — GUI can pass a function to update a live chart per record.
     """
-    address = await ble_client.find_probe()
-    if address is None:
-        raise ConnectionError("Probe not found. Check reed switch is activated.")
+    conn  = init_db(db_path)
+    records: list[ProbeRecord] = []
 
-    client = await ble_client.connect(address)
-    raw_packets: list[bytes] = []
+    with serial.Serial(port, DEFAULT_BAUD, timeout=30) as ser:
+        logger.info("Serial port %s open. Waiting for probe...", port)
 
-    try:
-        metadata = await ble_client.read_metadata(client)
-        logger.info("Metadata received: %s", metadata.hex())
+        for raw_line in ser:
+            line = raw_line.decode("utf-8", errors="replace").strip()
 
-        def _collect(pkt: bytes) -> None:
-            raw_packets.append(pkt)
+            if line.startswith("DATA:"):
+                rec = _parse_data_line(line)
+                if rec:
+                    records.append(rec)
+                    conn.execute(
+                        "INSERT OR IGNORE INTO probe_records VALUES (?,?,?,?,?,?)",
+                        (rec.entry_num, rec.ms_since_start, rec.temperature_c,
+                         rec.pressure_dbar, rec.excitation_raw, rec.fluorescence_raw)
+                    )
+                    conn.commit()
+                    if on_record:
+                        on_record(rec)
 
-        await ble_client.stream_data(client, _collect)
+            elif "[SESSION] EOF" in line:
+                if log_callback: log_callback(line)
+                break   # transfer complete
 
-    finally:
-        await ble_client.disconnect(client)
+            else:
+                if log_callback: log_callback(line)
 
-    records = packet_parser.parse_all(raw_packets)
-
-    conn = data_store.init_db(db_path)
-    data_store.save_records_sqlite(records, conn)
     conn.close()
-
-    logger.info("Sync complete. %d records transferred.", len(records))
+    logger.info("Sync complete. %d records received.", len(records))
     return [asdict(r) for r in records]
 
 
-async def get_status() -> dict:
-    """
-    Connect briefly, read STATUS characteristic, disconnect.
-    Returns a dict with raw status bytes for the GUI to display.
-    """
-    address = await ble_client.find_probe()
-    if address is None:
-        return {"connected": False, "status_raw": None}
-
-    client = await ble_client.connect(address)
-    try:
-        status = await ble_client.read_status(client)
-    finally:
-        await ble_client.disconnect(client)
-
-    return {"connected": True, "status_raw": status.hex()}
-
-
-# ── Convenience wrapper for non-async callers ─────────────────────────────
-
-def run_sync(db_path: Path = data_store.DEFAULT_DB_PATH) -> list[dict]:
-    """Blocking wrapper around sync_probe() for simple scripts / testing."""
-    return asyncio.run(sync_probe(db_path))
+# ── Convenience wrapper for non-async callers ──────────────────────────────
+def run_sync(port: str = DEFAULT_PORT, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    return sync_probe(port=port, db_path=db_path)
 
 
 if __name__ == "__main__":
@@ -90,4 +131,5 @@ if __name__ == "__main__":
     records = run_sync()
     print(f"Synced {len(records)} records.")
     if records:
-        print("First record:", records[0])
+        print("First:", records[0])
+        print("Last: ", records[-1])
