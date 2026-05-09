@@ -58,10 +58,8 @@ async def mock_sync_probe(db_path=None, on_log=None):
             "timestamp_ms": ts,
             "temperature":  round(random.uniform(-2.0, 4.0), 2),
             "depth":        round(random.uniform(10.0, 200.0), 2),
-            "salinity":     round(random.uniform(33.0, 35.5), 3),
-            "dissolved_o2": round(random.uniform(250.0, 380.0), 1),
-            "chlorophyll":  round(random.uniform(0.01, 2.50), 3),
-            "ph":           round(random.uniform(7.9, 8.2), 3),
+            "excitation":     round(random.uniform(33.0, 35.5), 3),
+            "fluorescence": round(random.uniform(250.0, 380.0), 1),
         }
         records.append(record)
         if on_log: on_log(f"  Packet {i+1}/{total} received  [seq={i}]")
@@ -163,34 +161,7 @@ class ProbeApp(ctk.CTk):
 
         pad = {"padx": 16, "pady": 6}
 
-        ctk.CTkLabel(
-            side, text="BLE DEVICE", font=("Courier New", 10, "bold"),
-            text_color="#8AAFC8", fg_color="transparent"
-        ).pack(anchor="w", padx=16, pady=(20, 2))
-
-        self._device_var = ctk.StringVar(value="Select device...")
-        self._device_dropdown = ctk.CTkOptionMenu(
-            side,
-            variable=self._device_var,
-            values=["Select device..."],
-            fg_color=COLOUR_TOOLBAR_HOVER,
-            button_color=COLOUR_TOOLBAR_HOVER,
-            button_hover_color=COLOUR_ACCENT,
-            text_color=COLOUR_TOOLBAR_TEXT,
-            font=("Courier New", 11),
-            width=178,
-        )
-        self._device_dropdown.pack(**pad)
-
-        self._scan_btn = ctk.CTkButton(
-            side, text="⟳  Scan", width=178,
-            fg_color=COLOUR_TOOLBAR_HOVER, hover_color=COLOUR_ACCENT,
-            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
-            corner_radius=6, command=self._on_scan
-        )
-        self._scan_btn.pack(**pad)
-
-        ctk.CTkFrame(side, fg_color="#2A4A6C", height=1).pack(fill="x", padx=16, pady=14)
+        ctk.CTkFrame(side, fg_color="#2A4A6C", height=1).pack(fill="x", padx=16, pady=6)
 
         ctk.CTkLabel(
             side, text="ACTIONS", font=("Courier New", 10, "bold"),
@@ -201,6 +172,14 @@ class ProbeApp(ctk.CTk):
             side, text="⏻  Connect", width=178,
             fg_color=COLOUR_ACCENT, hover_color="#1565C0",
             text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 13, "bold"),
+            corner_radius=6, command=self._on_connect
+        )
+        self._connect_btn.pack(**pad)
+
+        self._connect_btn = ctk.CTkButton(
+            side, text="↑  Ready Dive", width=178,
+            fg_color=COLOUR_ACCENT, hover_color="#1565C0",
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12, "bold"),
             corner_radius=6, command=self._on_connect
         )
         self._connect_btn.pack(**pad)
@@ -219,6 +198,13 @@ class ProbeApp(ctk.CTk):
             side, text="FILE", font=("Courier New", 10, "bold"),
             text_color="#8AAFC8", fg_color="transparent"
         ).pack(anchor="w", padx=16, pady=(0, 2))
+
+        ctk.CTkButton(
+            side, text="🗃️  Save to File", width=178,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color=COLOUR_ACCENT,
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
+            corner_radius=6, command=self._on_save_file
+        ).pack(**pad)
 
         ctk.CTkButton(
             side, text="📂  Load from File", width=178,
@@ -295,10 +281,10 @@ class ProbeApp(ctk.CTk):
     def _write_data_header(self):
         header = (
             f"{'SEQ':>5}  {'TIMESTAMP':>14}  {'TEMP (°C)':>10}  "
-            f"{'DEPTH (m)':>10}  {'SAL (PSU)':>10}  "
-            f"{'O2 (µmol/L)':>12}  {'CHLO (µg/L)':>12}  {'pH':>7}\n"
+            f"{'DEPTH (m)':>10}  {'EXCITATION (V)':>10}  "
+            f"{'FLUORESCENCE (RFU)':>12}\n"
         )
-        divider = "─" * 95 + "\n"
+        divider = "─" * (len(header) - 1) + "\n"
         self._data_append(header + divider)
 
     def _log(self, msg):
@@ -420,6 +406,38 @@ class ProbeApp(ctk.CTk):
 
         run_async(_do_sync(), _done)
 
+    def _on_save_file(self):
+        from tkinter import filedialog
+        import csv
+        if not self._records:
+            self._log("No data to save.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save probe data",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if not path: return
+
+        self._log(f"Saving to file: {Path(path).name}")
+        try:
+            with open(path, mode="w", newline="") as f:
+                fieldnames = ["sequence", "timestamp_ms", "temperature_C", "depth_m", "salinity_PSU", "dissolved_o2_umolL", "chlorophyll_ugL", "ph"]
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for r in self._records:
+                    writer.writerow({
+                        "sequence":         r["sequence"],
+                        "timestamp_ms":     r["timestamp_ms"],
+                        "temperature_C":    r["temperature"],
+                        "depth_m":         r["depth"],
+                        "excitation":    r["excitation"],
+                        "fluorescence": r["fluorescence"],
+                    })
+            self._log(f"Saved {len(self._records)} records to file.")
+        except Exception as e:
+            self._log(f"Failed to save file: {e}")
+
     def _on_load_file(self):
         from tkinter import filedialog
         import csv
@@ -439,10 +457,8 @@ class ProbeApp(ctk.CTk):
                         "timestamp_ms": int(row.get("timestamp_ms", 0)),
                         "temperature":  float(row.get("temperature_C", 0)),
                         "depth":        float(row.get("depth_m", 0)),
-                        "salinity":     float(row.get("salinity_PSU", 0)),
-                        "dissolved_o2": float(row.get("dissolved_o2_umolL", 0)),
-                        "chlorophyll":  float(row.get("chlorophyll_ugL", 0)),
-                        "ph":           float(row.get("ph", 0)),
+                        "excitation":     float(row.get("excitation", 0)),
+                        "fluorescence": float(row.get("fluorescence", 0)),
                     })
             self._display_records(records)
             self._log(f"Loaded {len(records)} records from file.")
