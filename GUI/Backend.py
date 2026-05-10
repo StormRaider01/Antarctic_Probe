@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 _ser: serial.Serial | None = None   # shared Serial instance, owned by Backend
 
 BAUD_RATE        = 115200
-DONGLE_READY_MSG = "Ready"          # must match what receiver_dongle.ino prints on boot
+DONGLE_READY_MSG = "Ready. Waiting for probe..."          # must match what receiver_dongle.ino prints on boot
 
 @dataclass
 class ProbeRecord:
@@ -88,16 +88,28 @@ async def connect_dongle(port: str | None = None) -> dict | None:
 
     for p in ports_to_try:
         try:
-            candidate = serial.Serial(p, BAUD_RATE, timeout=2)
+            # For Native USB (ESP32-C6), DTR must be True for the board to send data
+            candidate = serial.Serial(p, BAUD_RATE, timeout=1)
+            candidate.dtr = True
+            candidate.rts = True
+
             # Drain any startup noise, look for ready message
-            for _ in range(10):
-                line = candidate.readline().decode("utf-8", errors="replace").strip()
+            for _ in range(5):
+                raw = candidate.readline()
+                line = raw.decode("utf-8", errors="replace").strip()
+                
+                # Print everything Python reads so we aren't flying blind
+                if raw:
+                    print(f"[DEBUG - {p}] Read: {line}")
+                
                 if DONGLE_READY_MSG in line:
                     _ser = candidate
                     logger.info("Dongle found on %s", p)
                     return {"connected": True, "port": p}
+            
             candidate.close()
-        except (serial.SerialException, OSError):
+        except Exception as e:
+            print(f"[DEBUG - {p}] Port error: {e}")
             continue
 
     return None
@@ -222,3 +234,10 @@ def run_in_thread(fn, callback=None):
                 callback(None, exc)
 
     threading.Thread(target=_thread, daemon=True).start()
+
+
+async def mock_get_status() -> dict:
+    """Mock status request since the real probe isn't hooked up yet."""
+    import asyncio
+    await asyncio.sleep(0.5)
+    return {"battery_pct": 100}
