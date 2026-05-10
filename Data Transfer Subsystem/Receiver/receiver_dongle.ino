@@ -133,5 +133,8 @@ void setup() {
 void loop() {
     // ESP-NOW callbacks handle everything.
     // Nothing needed here — add a heartbeat print if useful for debugging.
+    
+    // Add a heartbeat print so the Python script can "find" it anytime
+    Serial.println("[INFO] Ready. Waiting for probe...");
     delay(1000);
 }
