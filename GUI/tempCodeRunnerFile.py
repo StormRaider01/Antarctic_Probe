@@ -1,1 +1,1 @@
-import random, time
+with serial.Serial("COM11", 115200) as s:

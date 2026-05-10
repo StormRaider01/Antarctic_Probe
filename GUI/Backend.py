@@ -3,94 +3,192 @@ Backend.py
 ==========
 Pure backend module for the Antarctic Probe GUI.
 Contains:
-  - Mock async functions (replace with real ESP-NOW/Serial logic later)
-  - run_async() helper
+  - Serial connection management (connect_dongle)
+  - Real sync_probe() reading DATA: lines from the receiver dongle
+  - run_async()      — for async coroutines (connect_dongle)
+  - run_in_thread()  — for blocking functions (sync_probe)
   - No GUI imports, no class methods, no 'self' references
 
-GUI.py imports this as `bk` and calls bk.run_async(), bk.mock_get_status(), etc.
+GUI.py imports this as `bk`.
 """
 
 import asyncio
-import random
+import logging
 import threading
-import time
+from dataclasses import asdict, dataclass
 
-# ── Mock async functions ──────────────────────────────────────────────────
-# Replace these with real Serial/ESP-NOW logic once hardware is ready.
-
-async def mock_get_status():
-    """Simulates connecting to the probe and reading battery level."""
-    await asyncio.sleep(0.5)
-    return {
-        "connected":   True,
-        "battery_pct": random.randint(60, 95),
-        "status_raw":  "OK",
-    }
+import serial
+from serial.tools import list_ports
 
 
-async def mock_sync_probe(db_path=None, on_log=None):
+# ===========================================================================
+# Global variables and config
+
+logger = logging.getLogger(__name__)
+
+_ser: serial.Serial | None = None   # shared Serial instance, owned by Backend
+
+BAUD_RATE        = 115200
+DONGLE_READY_MSG = "Ready"          # must match what receiver_dongle.ino prints on boot
+
+@dataclass
+class ProbeRecord:
+    entry_num:        int
+    ms_since_start:   int
+    temperature_c:    float
+    pressure_dbar:    float
+    excitation_raw:   float
+    fluorescence_raw: float
+
+
+# ===========================================================================
+
+def _parse_data_line(line: str) -> ProbeRecord | None:
+    """Parse a 'DATA:entry,ms,temp,pressure,excitation,fluorescence' line."""
+    try:
+        _, csv = line.split("DATA:", 1)
+        parts = csv.strip().split(",")
+        if len(parts) != 6:
+            return None
+        return ProbeRecord(
+            entry_num        = int(parts[0]),
+            ms_since_start   = int(parts[1]),
+            temperature_c    = float(parts[2]),
+            pressure_dbar    = float(parts[3]),
+            excitation_raw   = float(parts[4]),
+            fluorescence_raw = float(parts[5]),
+        )
+    except (ValueError, IndexError):
+        return None
+
+# ===========================================================================
+
+def _send_cmd(cmd: str) -> bool:
+    """Write a CMD: line to the dongle. Returns False if not connected."""
+    if _ser is None or not _ser.is_open:
+        return False
+    _ser.write((cmd + "\n").encode())
+    return True
+
+# ===========================================================================
+
+async def connect_dongle(port: str | None = None) -> dict | None:
     """
-    Simulates an ESP-NOW data retrieval session.
-    Records match ProbeRecord_t fields: sequence, timestamp_ms,
-    temperature, pressure, excitation, fluorescence.
+    Try to open the Serial port and confirm the dongle is alive.
 
-    In production, replace with:
-      - Open Serial port to receiver dongle
-      - Send RETRIEVE command
-      - Read DATA: CSV lines until [SESSION] EOF
-      - Parse into the same dict structure
+    If `port` is None, scans all COM ports for the first one that responds
+    with DONGLE_READY_MSG within 2 s.
+
+    Returns {"connected": True, "port": port} on success, None on failure.
+    GUI's _find_dongle() retries every 3 s on None.
     """
-    records = []
-    # Simulate groups: NUM_GROUPS sample groups of SAMPLES_PER_GROUP readings each
-    NUM_GROUPS       = random.randint(3, 6)
-    SAMPLES_PER_GROUP = 15
-    GROUP_INTERVAL_MS = 120_000   # 2 min between groups
+    global _ser
 
-    total = NUM_GROUPS * SAMPLES_PER_GROUP
+    ports_to_try = [port] if port else [p.device for p in serial.tools.list_ports.comports()]
 
-    if on_log:
-        on_log(f"ESP-NOW link established. Expecting {total} records ({NUM_GROUPS} groups).")
-    await asyncio.sleep(0.6)
+    for p in ports_to_try:
+        try:
+            candidate = serial.Serial(p, BAUD_RATE, timeout=2)
+            # Drain any startup noise, look for ready message
+            for _ in range(10):
+                line = candidate.readline().decode("utf-8", errors="replace").strip()
+                if DONGLE_READY_MSG in line:
+                    _ser = candidate
+                    logger.info("Dongle found on %s", p)
+                    return {"connected": True, "port": p}
+            candidate.close()
+        except (serial.SerialException, OSError):
+            continue
 
-    seq = 0
-    for g in range(NUM_GROUPS):
-        group_start_ms = g * GROUP_INTERVAL_MS
-        # One set of 'constant' values per group (temp and pressure don't change mid-sample)
-        temp     = round(random.uniform(-2.0, 4.0), 2)
-        pressure = round(random.uniform(10.0, 200.0), 2)
+    return None
 
-        for i in range(SAMPLES_PER_GROUP):
-            await asyncio.sleep(0.05)
-            ts_ms = group_start_ms + i          # 1 ms between readings in group
-            record = {
-                "sequence":     seq,
-                "timestamp_ms": ts_ms,
-                "temperature":  temp,
-                "pressure":     pressure,
-                "excitation":   round(random.uniform(500.0, 530.0), 2),
-                "fluorescence": round(random.uniform(120.0, 160.0), 2),
-            }
-            records.append(record)
-            if on_log:
-                on_log(f"  Packet {seq + 1}/{total}  [group={g+1}, seq={seq}]")
-            seq += 1
+# ===========================================================================
 
-        if on_log:
-            on_log(f"Group {g + 1}/{NUM_GROUPS} received.")
-        await asyncio.sleep(0.1)
-
-    await asyncio.sleep(0.2)
-    if on_log:
-        on_log(f"Transfer complete. {total} records synced.")
-    return records
+def disconnect_dongle() -> None:
+    """Close the serial port cleanly."""
+    global _ser
+    if _ser and _ser.is_open:
+        _ser.close()
+    _ser = None
 
 
-# ── run_async ─────────────────────────────────────────────────────────────
+# ===========================================================================
+# Probe commands
+
+def send_prepare_dive(date_str: str, time_str: str) -> bool:
+    """Send CMD:PREPARE,<date>,<time> to the dongle."""
+    return _send_cmd(f"CMD:PREPARE,{date_str},{time_str}")
+
+
+def send_retrieve() -> bool:
+    """Send CMD:RETRIEVE to trigger ESP-NOW data transfer."""
+    return _send_cmd("CMD:RETRIEVE")
+
+
+def send_status_request() -> bool:
+    """Send CMD:STATUS to request battery level."""
+    return _send_cmd("CMD:STATUS")
+
+
+# ===========================================================================
+
+def sync_probe(log_callback=None, on_record=None) -> list[dict]:
+    """
+    Reads DATA: lines from the already-open serial port until [SESSION] EOF.
+    
+    - log_callback(str)   : called for every non-DATA line ([SESSION], [ERROR], etc.)
+    - on_record(dict)     : called live per record so GUI can update incrementally
+
+    Returns list of record dicts (same keys as ProbeRecord fields).
+    Raises RuntimeError if the serial port is not open.
+    """
+    if _ser is None or not _ser.is_open:
+        raise RuntimeError("Serial port not open. Connect dongle first.")
+
+    # Extend timeout for the duration of the transfer
+    _ser.timeout = 30
+    records: list[ProbeRecord] = []
+
+    try:
+        for raw_line in _ser:
+            line = raw_line.decode("utf-8", errors="replace").strip()
+
+            if line.startswith("DATA:"):
+                rec = _parse_data_line(line)
+                if rec:
+                    records.append(rec)
+                    if on_record:
+                        on_record(asdict(rec))      # pass dict so GUI stays decoupled
+
+            elif "[SESSION] EOF" in line:
+                if log_callback:
+                    log_callback(line)
+                break
+
+            elif line.startswith("BATT:"):
+                # Battery update mid-session (optional — dongle can send this anytime)
+                if log_callback:
+                    log_callback(line)
+
+            else:
+                if log_callback:
+                    log_callback(line)
+
+    finally:
+        _ser.timeout = 2    # restore normal timeout
+
+    logger.info("Sync complete. %d records received.", len(records))
+    return [asdict(r) for r in records]
+
+
+# ===========================================================================
+# Thread helpers for running blocking code without freezing the GUI
+
 def run_async(coro, callback=None):
     """
     Run an async coroutine in a background thread without blocking the GUI.
-    callback(result, error) is called from that thread when done;
-    GUI handlers use self.after(0, ...) to push UI updates back to mainthread.
+    callback(result, error) is called from that thread when done.
+    GUI handlers use self.after(0, ...) to push UI updates to the main thread.
     """
     def _thread():
         loop = asyncio.new_event_loop()
@@ -105,5 +203,22 @@ def run_async(coro, callback=None):
         finally:
             loop.close()
 
-    t = threading.Thread(target=_thread, daemon=True)
-    t.start()
+    threading.Thread(target=_thread, daemon=True).start()
+
+
+def run_in_thread(fn, callback=None):
+    """
+    Run a plain blocking function in a background thread without blocking the GUI.
+    Use this for sync_probe() and any other blocking I/O.
+    callback(result, error) is called from that thread when done.
+    """
+    def _thread():
+        try:
+            result = fn()
+            if callback:
+                callback(result, None)
+        except Exception as exc:
+            if callback:
+                callback(None, exc)
+
+    threading.Thread(target=_thread, daemon=True).start()

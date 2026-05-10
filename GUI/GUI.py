@@ -75,8 +75,28 @@ class ProbeApp(ctk.CTk):
 
         self._build_top_toolbar()
         self._build_body()
-        self._log("System initialised. Connect probe, then choose a mode.")
 
+        # Initial log message and button states
+        # Button are initially disabled since the dongle first needs to come online
+        self._log("System initialised. Looking for dongle...")
+        self._connect_btn.configure(state="disabled")
+        self._dive_btn.configure(state="disabled")
+        self._retrieve_btn.configure(state="disabled")
+
+        # Give the system time to render before looking for dongle
+        self.after(1000, self._find_dongle)
+
+
+    def _find_dongle(self):
+        def _done(result, err):
+            if err or not result:
+                self.after(3000, self._find_dongle)   # try again in a few seconds
+                return
+            self._log("Dongle Found. Ready to connect to probe.")
+            self._connect_btn.configure(state="normal")
+
+        # Logic to look for dongle handled in backend
+        bk.run_async(bk.connect_dongle(), _done)
 
 
 
@@ -658,30 +678,16 @@ class ProbeApp(ctk.CTk):
 
 
     # Prepare Dive button
-    def _on_prepare_dive(self):
-        if self._busy or not self._connected:
-            return
-        now = datetime.now()
-        date_str = now.strftime("%Y-%m-%d")
-        time_str = now.strftime("%H:%M:%S")
-        self._log(f"Sending PREPARE DIVE — date={date_str}, time={time_str}")
-        self._log("Probe memory reset command sent.")
-        # TODO: send actual ESP-NOW command to dongle with datetime + reset flag
-
-
-
-    # Retrieve Data button
     def _on_retrieve_data(self):
         if self._busy or not self._connected:
             return
-        self._log("Starting data retrieval via ESP-NOW...")
+        self._log("Sending RETRIEVE command to dongle...")
         self._set_busy(True)
+
+        bk.send_retrieve()   # non-blocking, just writes CMD:RETRIEVE to serial
 
         def _log_cb(msg):
             self._log(msg)
-
-        async def _do_sync():
-            return await bk.mock_sync_probe(on_log=_log_cb)
 
         def _done(records, err):
             self._set_busy(False)
@@ -692,7 +698,23 @@ class ProbeApp(ctk.CTk):
             self._display_records(records)
             self._log(f"Retrieval complete — {len(records)} records received.")
 
-        bk.run_async(_do_sync(), _done)
+        bk.run_in_thread(
+            lambda: bk.sync_probe(log_callback=_log_cb),
+            _done
+        )
+
+
+    def _on_prepare_dive(self):
+        if self._busy or not self._connected:
+            return
+        
+        now = datetime.now()
+        ok = bk.send_prepare_dive(now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"))
+
+        if ok:
+            self._log(f"PREPARE DIVE sent — {now.strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            self._log("Failed to send PREPARE DIVE — dongle not connected.")
 
 
 
