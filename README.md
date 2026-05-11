@@ -96,3 +96,10 @@ python GUI.py
 - Click **"Connect"**. The backend will automatically handshake with the receiver dongle.
 - Click **"Retrieve Data"**. 
 - Simulate the probe retrieval by triggering GPIO 9 (Reed Switch) on the probe hardware. The F-RAM records will transfer wirelessly, be evaluated by the ML model, and plot directly to the dashboard.
+
+### 4. Software Simulation Mode (Dev Mode)
+If you do not have the physical hardware connected, you can simulate the full data processing and ML pipeline locally:
+- Open the GUI (`python GUI.py`).
+- Click **"🧪 Dev Mode: Simulate"** in the sidebar.
+- The GUI will ingest the local synthetic dataset (`dummy_marine_data.csv`), simulating an ESP-NOW data stream at 0.5-second intervals. 
+- Use the **Playback Control Panel** (Pause/Play, Restart, Stop) that appears to interactively control the simulation flow. Watch the graphs update live and verify the red anomaly flags without needing the physical ESP32 boards.

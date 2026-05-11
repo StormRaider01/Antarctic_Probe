@@ -233,6 +233,21 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
         })
     return mapped_records
 
+import threading
+
+_sim_paused = threading.Event()
+_sim_stopped = threading.Event()
+
+def pause_simulation():
+    _sim_paused.set()
+
+def resume_simulation():
+    _sim_paused.clear()
+
+def stop_simulation():
+    _sim_stopped.set()
+    _sim_paused.clear() # Unblock if currently paused
+
 def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
     """
     Simulates incoming data by reading dummy_marine_data.csv line by line.
@@ -246,6 +261,9 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
             log_callback(f"[ERROR] Dummy data file not found at {csv_path}")
         return []
 
+    _sim_stopped.clear()
+    _sim_paused.clear()
+
     if log_callback:
         log_callback("[SESSION] Simulated transfer started.")
 
@@ -254,6 +272,19 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
     with open(csv_path, 'r') as f:
         next(f) # Skip header
         for line in f:
+            if _sim_stopped.is_set():
+                if log_callback:
+                    log_callback("[SESSION] Simulation stopped by user.")
+                break
+
+            while _sim_paused.is_set() and not _sim_stopped.is_set():
+                time.sleep(0.1)
+                
+            if _sim_stopped.is_set():
+                if log_callback:
+                    log_callback("[SESSION] Simulation stopped by user.")
+                break
+
             line = line.strip()
             if not line:
                 continue
@@ -283,9 +314,13 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
                 if on_record:
                     on_record(mapped_rec)
             
-            time.sleep(0.5)
+            # Sleep 0.5s but allow fast interruption
+            for _ in range(5):
+                if _sim_stopped.is_set():
+                    break
+                time.sleep(0.1)
 
-    if log_callback:
+    if not _sim_stopped.is_set() and log_callback:
         log_callback("[SESSION] EOF")
 
     logger.info("Simulation complete. %d records processed.", len(records))
