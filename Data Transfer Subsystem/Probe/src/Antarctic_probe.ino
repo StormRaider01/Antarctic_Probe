@@ -1,6 +1,7 @@
-#include "espnow_transfer.h"
-#include "fram_manager.h"
 #include <Arduino.h>
+#include "fram_manager.h"
+#include "espnow_transfer.h"
+#include "data_packet.h"
 
 // ==============================================================================
 // 1. HITL DEBUG CONFIGURATION
@@ -14,9 +15,9 @@
 #endif
 
 // PIN DEFINITION
-// NOTE: On ESP32-C6, only GPIO 0-7 are LP-IOs capable of Deep Sleep wakeup.
-// For HITL testing, wire your external push button between GPIO 0 and GND.
-#define REED_SWITCH_PIN GPIO_NUM_0  
+// NOTE: On ESP32-C6 FireBeetle 2, only GPIO 0-7 are LP-IOs capable of Deep Sleep wakeup.
+// D6 is GPIO 1. For HITL testing, wire your external push button between D6 and GND.
+#define REED_SWITCH_PIN GPIO_NUM_1  
 #define uS_TO_S_FACTOR 1000000ULL
 
 // Simulated Record Number Tracker (survives deep sleep/reset)
@@ -36,8 +37,8 @@ void setup() {
     
     Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
     #if DEBUG_MODE
-    Serial.println("[HITL] DEBUG_MODE ACTIVE (Timer: 5s, Trigger: GPIO 0)");
-    Serial.println("[HITL] WIRING: Connect button between GPIO 0 (D2) and GND.");
+    Serial.println("[HITL] DEBUG_MODE ACTIVE (Timer: 5s, Trigger: GPIO 1)");
+    Serial.println("[HITL] WIRING: Connect button between D6 (GPIO 1) and GND.");
     #endif
 
     fram_init();
@@ -49,8 +50,6 @@ void setup() {
         // --- STATE: WAKE_AND_LOG ---
         #if DEBUG_MODE
         Serial.println("[HITL] Waking up (Timer)...");
-        #else
-        Serial.println("Wakeup Reason: TIMER. State -> WAKE_AND_LOG");
         #endif
         
         uint32_t current_time_ms = (record_counter - 1) * SLEEP_DURATION_SEC * 1000;
@@ -68,7 +67,7 @@ void setup() {
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
         // --- STATE: OFFLOAD ---
         #if DEBUG_MODE
-        Serial.println("[HITL] WAKEUP CAUSE: GPIO 0 (Magnetic Switch Simulated)!");
+        Serial.println("[HITL] WAKEUP CAUSE: GPIO 1 (Magnetic Switch Simulated)!");
         Serial.println("[HITL] Offloading F-RAM contents...");
         #endif
         
@@ -78,6 +77,7 @@ void setup() {
         if (count > 0) {
             ESPNowStatus_t status = ESPNOW_Init();
             if (status == ESPNOW_OK) {
+                // Arguments: (records, count, start_ms, session_date)
                 ESPNOW_StartTransfer(records, count, session_start_time, 20260511);
                 ESPNOW_Deinit();
             } else {
@@ -109,7 +109,7 @@ void setup() {
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
     
     // Configure wake-up sources
-    // On C6, GPIO 0 is an LP-IO (RTC IO) which supports ext1 wakeup in deep sleep.
+    // On C6, GPIO 1 (D6) is an LP-IO (RTC IO) which supports ext1 wakeup in deep sleep.
     esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
 
