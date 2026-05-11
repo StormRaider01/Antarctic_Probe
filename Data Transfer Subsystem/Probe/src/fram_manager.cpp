@@ -33,6 +33,12 @@ int fram_get_records(ProbeRecord_t* out_records, int max_records) {
         float temp, pressure;
         float spec[11];
         
+        // Print raw string for HITL validation
+        Serial.print("[HITL] RTC Memory Read [");
+        Serial.print(i);
+        Serial.print("]: ");
+        Serial.println(simulated_fram[i]);
+
         // sscanf parses the 15-value string into the corresponding variables
         int parsed = sscanf(simulated_fram[i], "%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
                &entry_num, &time_ms, &temp, &pressure,

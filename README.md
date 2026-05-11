@@ -103,3 +103,11 @@ If you do not have the physical hardware connected, you can simulate the full da
 - Click **"🧪 Dev Mode: Simulate"** in the sidebar.
 - The GUI will ingest the local synthetic dataset (`dummy_marine_data.csv`), simulating an ESP-NOW data stream at 0.5-second intervals. 
 - Use the **Playback Control Panel** (Pause/Play, Restart, Stop) that appears to interactively control the simulation flow. Watch the graphs update live and verify the red anomaly flags without needing the physical ESP32 boards.
+
+### 5. Hardware-in-the-Loop (HITL) Debug Mode
+For physical validation without physical sensors or a magnetic switch:
+1. Open `Data Transfer Subsystem/Probe/Antarctic_probe.ino`.
+2. Ensure `#define DEBUG_MODE 1` is set at the top.
+3. Flash the firmware to your ESP32-C6.
+4. **Timer Validation**: Watch the Serial Monitor. The board will wake every 5 seconds, log a dummy record to RTC memory, and return to sleep.
+5. **Interrupt Validation**: Press the physical **BOOT button** (GPIO 9) on the FireBeetle 2. This simulates the magnetic reed switch. Upon waking, the board will enter the `OFFLOAD` state and dump all accumulated RTC memory records to the Serial Monitor.
