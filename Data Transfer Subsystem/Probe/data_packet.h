@@ -64,8 +64,7 @@ typedef struct __attribute__((packed)) {
     uint32_t ms_since_start;    // Milliseconds since session_start_ms
     float    temperature_c;     // °C — from sensor (SS4)
     float    pressure_dbar;     // dbar — from pressure sensor (SS4)
-    float    excitation_raw;    // Raw ADC count — fluorometer excitation channel
-    float    fluorescence_raw;  // Raw ADC count — fluorometer emission channel
+    float    spec_channels[11]; // 11 Spectrometer channels (s6=excitation, s7=fluorescence)
     uint8_t  checksum;          // XOR of all preceding bytes in this struct
 } ProbeRecord_t;
 
@@ -112,8 +111,7 @@ static inline ProbeRecord_t build_record(
     uint32_t ms_since_start,
     float    temperature_c,
     float    pressure_dbar,
-    float    excitation_raw,
-    float    fluorescence_raw
+    const float* spec_channels
 ) {
     ProbeRecord_t r;    // r is a struct of type ProbeRecord_t
     r.pkt_type         = PKT_TYPE_RECORD;
@@ -121,8 +119,9 @@ static inline ProbeRecord_t build_record(
     r.ms_since_start   = ms_since_start;
     r.temperature_c    = temperature_c;
     r.pressure_dbar    = pressure_dbar;
-    r.excitation_raw   = excitation_raw;
-    r.fluorescence_raw = fluorescence_raw;
+    for (int i = 0; i < 11; i++) {
+        r.spec_channels[i] = spec_channels[i];
+    }
     r.checksum         = xor_checksum((const uint8_t*)&r, sizeof(r) - 1);
     return r;
 }

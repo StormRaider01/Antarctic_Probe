@@ -2,85 +2,97 @@
 
 ## Project Overview
 
-This repository contains the firmware, data pipeline, and GUI for a submersible Antarctic probe system. The architecture uses **ESP-NOW** for ultra-low-power wireless data transfer from a retrieved probe to a researcher's laptop — operating entirely **offline**, with no internet dependency.
+This repository contains the integrated firmware, data pipeline, and GUI for a submersible Antarctic marine environmental probe system. The architecture represents the full integration of **Subsystem 1 (Wireless Communications)** and **Subsystem 2 (Edge Processing, Storage, and Machine Learning)**.
 
-**System flow:**
-```
-Submersible Probe (ESP32 + F-RAM)
-        │  [ESP-NOW]
+The system uses **ESP-NOW** for ultra-low-power wireless data transfer from a retrieved probe to a researcher's laptop, operating entirely **offline** with no internet dependency. Anomalies in microbial communities (detected via spectrometer spikes) are flagged instantly upon retrieval using an onboard offline Machine Learning model.
+
+**Integrated System Flow:**
+```text
+Submersible Probe (ESP32-C6)
+   ├── 3-State Firmware (Deep Sleep, Log, Offload)
+   ├── Sensor readings parsed into 15-channel strings
+   └── F-RAM (Simulated via RTC Memory)
+        │
+        │  [ESP-NOW Binary Protocol — ProbeRecord_t]
         ▼
-Receiver ESP32 (USB → Laptop)
-        │  [Serial/USB]
+Receiver Dongle (ESP32-C6 connected via USB)
+   ├── Validates Checksums & Returns ACKs
+   └── Serialises struct into CSV strings
+        │
+        │  [Serial/USB: 115200 baud]
         ▼
 Local Mission Control GUI (Python)
-        │
-        ▼
-Offline ML Anomaly Detection
+   ├── Auto-connects to receiver dongle
+   ├── Parses incoming data streams concurrently
+   ├── Executes Scikit-Learn Isolation Forest Inference
+   └── Visually flags [ANOMALY DETECTED] on GUI graphs
 ```
 
 ---
 
 ## Repository Structure
 
-```
+```text
 ├── Data Transfer Subsystem/
 │   ├── Probe/
-│   │   ├── Antarctic_probe.ino
-│   │   ├── ble_server.cpp / .h
-│   │   ├── data_packet.cpp / .h
+│   │   ├── Antarctic_probe.ino      # Main 3-state firmware loop
+│   │   ├── espnow_transfer.cpp/.h   # ESP-NOW transmission logic
+│   │   ├── fram_manager.cpp/.h      # F-RAM logging and struct parsing
+│   │   └── data_packet.h            # Shared binary wire format (15 fields)
 │   └── Receiver/
-│       ├── ble_client.py
-│       ├── data_store.py
-│       ├── packet_parser.py
-│       └── probe_interface.py
+│       └── receiver_dongle.ino      # ESP-NOW receiver and Serial forwarder
 └── GUI/
-    ├── GUI.py
-    ├── GUI_idea.jpg
-    └── Graph_tab.jpg
+    ├── GUI.py                       # Main frontend dashboard
+    ├── Backend.py                   # Serial comms, async sync_probe, anomaly evaluation
+    └── ml_backend/                  
+        ├── anomaly_detector.py      # MarineAnomalyDetector class wrapper
+        ├── train_model.py           # Isolation Forest training script
+        ├── generate_dummy_data.py   # Synthesises 15-channel marine data
+        └── anomaly_model.joblib     # Persisted offline ML model
 ```
 
 ---
 
-## Data Transfer Subsystem
+## Technical Architecture
 
-### Probe (`Data Transfer Subsystem/Probe/`)
+### 1. Firmware & Storage (SS2)
+- **Non-Blocking Architecture:** The probe operates a strict 3-state loop (`DEEP_SLEEP`, `WAKE_AND_LOG`, `OFFLOAD`). It uses hardware timer wakeups and GPIO interrupts (reed switch) to eliminate `delay()` calls entirely, preserving the LTO battery.
+- **F-RAM Simulation:** Sensor arrays (Temp, Pressure, and 11x Spectrometer channels) are saved to RTC memory across deep sleep cycles to simulate high-speed, non-volatile F-RAM.
+- **Data Packaging:** When retrieved, `fram_manager.cpp` inflates the stored strings back into binary `ProbeRecord_t` structs (incorporating 11 spectrometer arrays) for transmission.
 
-Arduino/ESP-IDF firmware running on the submersible ESP32.
+### 2. ESP-NOW Wireless Transfer (SS1)
+- **Binary Wire Format:** Uses packed C-structs (`ProbeRecord_t`) with XOR checksums to maximize MTU efficiency over the 2.4GHz spectrum.
+- **Reliability:** Implements application-layer ACKs and automatic retries to ensure no packet drops between the probe and receiver dongle.
 
-| File | Description |
-|------|-------------|
-| `Antarctic_probe.ino` | Main Arduino sketch — entry point for probe firmware. Initialises peripherals, manages sensor data logging to F-RAM, and triggers ESP-NOW transmission on retrieval. |
-| `ble_server.cpp/.h` | BLE/ESP-NOW server implementation. Handles wireless transmission of logged data to the receiver. *(Note: module named `ble_server` reflects earlier BLE architecture; now operates over ESP-NOW.)* |
-| `data_packet.cpp/.h` | Defines the data packet structure used for transmission. Handles serialisation of sensor readings into fixed-format packets. |
+### 3. Mission Control GUI & Backend (SS1 + SS2)
+- **Concurrency:** `Backend.py` uses threaded asynchronous loops to ensure the `customtkinter` frontend remains responsive while streaming high-speed serial data.
+- **Auto-Discovery:** Performs DTR/RTS serial handshaking to locate the ESP32 receiver dongle automatically without manual COM port selection.
 
-### Receiver (`Data Transfer Subsystem/Receiver/`)
-
-Python scripts running on the researcher's laptop, interfacing with the receiver ESP32 over USB serial.
-
-| File | Description |
-|------|-------------|
-| `ble_client.py` | Connects to the receiver ESP32 and receives incoming data packets. Counterpart to `ble_server` on the probe side. |
-| `packet_parser.py` | Parses raw binary/serial packet data into structured Python objects using the format defined by `data_packet`. |
-| `data_store.py` | Handles local persistence of parsed sensor data (e.g., writing to file or local database for GUI consumption). |
-| `probe_interface.py` | High-level interface that coordinates the client, parser, and store — the main entry point for the receiver pipeline. |
+### 4. Edge Machine Learning (SS2)
+- **Algorithm:** An Unsupervised `IsolationForest` identifies outliers based on 13 environmental features (dropping timestamps/IDs).
+- **Inference Speed:** Executed directly on incoming serial packets within `Backend.py` via `anomaly_detector.py`. Average inference time is < 0.02 seconds per packet, satisfying real-time mission constraints.
+- **Visualisation:** The GUI parses the boolean `is_anomaly` flags to plot outlier samples in high-contrast red over the Matplotlib telemetry graphs.
 
 ---
 
-## GUI (`GUI/`)
+## How to Run
 
-Local Mission Control GUI running on the researcher's laptop.
+### 1. Setup the Hardware
+1. Flash `Antarctic_probe.ino` to the primary ESP32-C6 (Probe).
+2. Flash `receiver_dongle.ino` to the secondary ESP32-C6 (Receiver).
+3. Connect the Receiver to your laptop via USB.
 
-| File | Description |
-|------|-------------|
-| `GUI.py` | Main Python GUI application. Displays incoming sensor data, supports real-time graphing, and interfaces with localised ML models for offline anomaly detection. |
-| `GUI_idea.jpg` | Design mockup/wireframe used during GUI planning. |
-| `Graph_tab.jpg` | Screenshot or mockup of the graph/visualisation tab in the GUI. |
+### 2. Setup the Python Environment
+```bash
+cd GUI
+pip install -r requirements.txt
+# Ensure scikit-learn, pandas, numpy, serial, customtkinter, matplotlib are installed
+```
 
----
-
-## Architecture Notes
-
-- **No internet required** — all processing, storage, and ML inference runs locally on the laptop.
-- **ESP-NOW protocol** — chosen for ultra-low power consumption on the probe side; operates independently of Wi-Fi association.
-- **F-RAM logging** — sensor data is written to non-volatile ferroelectric RAM on the probe during deployment; transmitted in bulk upon retrieval.
-- **LTO battery** — powers the probe during submersion; selected for low-temperature performance in Antarctic conditions.
+### 3. Start Mission Control
+```bash
+python GUI.py
+```
+- Click **"Connect"**. The backend will automatically handshake with the receiver dongle.
+- Click **"Retrieve Data"**. 
+- Simulate the probe retrieval by triggering GPIO 9 (Reed Switch) on the probe hardware. The F-RAM records will transfer wirelessly, be evaluated by the ML model, and plot directly to the dashboard.

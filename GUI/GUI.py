@@ -218,6 +218,15 @@ class ProbeApp(ctk.CTk):
         )
         self._retrieve_btn.pack(**pad)
 
+        # Dev Mode: Simulate Data
+        self._simulate_btn = ctk.CTkButton(
+            side, text="🧪  Dev Mode: Simulate", width=178,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color="#C62828",
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
+            corner_radius=6, command=self._on_simulate_data
+        )
+        self._simulate_btn.pack(**pad)
+
 
 
 
@@ -520,13 +529,20 @@ class ProbeApp(ctk.CTk):
         xs = [r["timestamp_ms"] for r in records]
         ys = [r.get(y_key, 0) for r in records]
 
-
-
+        # Filter out anomaly points
+        anomaly_xs = [r["timestamp_ms"] for r in records if r.get("is_anomaly")]
+        anomaly_ys = [r.get(y_key, 0) for r in records if r.get("is_anomaly")]
 
         # ==============================================================================
         # Graph styling
         self._ax.clear()
-        self._ax.plot(xs, ys, color=COLOUR_ACCENT, linewidth=1.8, marker="o", markersize=3)
+        self._ax.plot(xs, ys, color=COLOUR_ACCENT, linewidth=1.8, marker="o", markersize=3, label="Normal")
+        
+        # Overlay red scatter for anomalies
+        if anomaly_xs:
+            self._ax.scatter(anomaly_xs, anomaly_ys, color="red", zorder=5, s=30, label="Anomaly Detected")
+            self._ax.legend(loc="upper right", fontsize=8)
+
         self._ax.set_title(title, fontsize=10, color=COLOUR_PANEL_TEXT, pad=6)
         self._ax.set_xlabel("Time since start (ms)", fontsize=9, color=COLOUR_PANEL_TEXT)
         self._ax.set_ylabel(y_labels.get(y_key, y_key), fontsize=9, color=COLOUR_PANEL_TEXT)
@@ -591,10 +607,11 @@ class ProbeApp(ctk.CTk):
     # Displays a list of records in the raw data tab, and refreshes the graph
     def _display_records(self, records):
         for r in records:
+            anomaly_flag = "  [ANOMALY]" if r.get('is_anomaly') else ""
             line = (
                 f"{r['sequence']:>5}  {r['timestamp_ms']:>12}  "
                 f"{r['temperature']:>10.2f}  {r['pressure']:>10.2f}  "
-                f"{r['excitation']:>12.3f}  {r['fluorescence']:>14.3f}\n"
+                f"{r['excitation']:>12.3f}  {r['fluorescence']:>14.3f}{anomaly_flag}\n"
             )
             self._data_append(line)
         self._refresh_graph()
@@ -694,15 +711,41 @@ class ProbeApp(ctk.CTk):
             if err or records is None:
                 self._log(f"Sync failed: {err}")
                 return
-            self._records.extend(records)
-            self._display_records(records)
+            # Records are appended live, so no need to append them again here
             self._log(f"Retrieval complete — {len(records)} records received.")
 
         bk.run_in_thread(
-            lambda: bk.sync_probe(log_callback=_log_cb),
+            lambda: bk.sync_probe(log_callback=_log_cb, on_record=self._handle_live_record),
             _done
         )
 
+
+    def _on_simulate_data(self):
+        if self._busy:
+            return
+        self._log("Starting Dev Mode: Data Simulation...")
+        self._set_busy(True)
+
+        def _log_cb(msg):
+            self._log(msg)
+
+        def _done(records, err):
+            self._set_busy(False)
+            if err or records is None:
+                self._log(f"Simulation failed: {err}")
+                return
+            self._log(f"Simulation complete — {len(records)} records processed.")
+
+        bk.run_in_thread(
+            lambda: bk.simulate_incoming_data(log_callback=_log_cb, on_record=self._handle_live_record),
+            _done
+        )
+
+    def _handle_live_record(self, r):
+        def _do():
+            self._records.append(r)
+            self._display_records([r])
+        self.after(0, _do)
 
     def _on_prepare_dive(self):
         if self._busy or not self._connected:
