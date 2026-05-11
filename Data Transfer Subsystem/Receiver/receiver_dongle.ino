@@ -82,14 +82,23 @@ static void on_receive(const esp_now_recv_info_t* info, const uint8_t* data, int
         s_received_count++;
 
         // Output CSV to laptop Serial
-        // Format: DATA:entry,ms_since_start,temp,pressure,excitation,fluorescence
-        Serial.printf("DATA:%lu,%lu,%.2f,%.2f,%.2f,%.2f\n",
+        // Format: DATA:entry,ms_since_start,temp,pressure,spec0...spec10
+        Serial.printf("DATA:%lu,%lu,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n",
                       rec->entry_num,
                       rec->ms_since_start,
                       rec->temperature_c,
                       rec->pressure_dbar,
-                      rec->excitation_raw,
-                      rec->fluorescence_raw);
+                      rec->spec_channels[0],
+                      rec->spec_channels[1],
+                      rec->spec_channels[2],
+                      rec->spec_channels[3],
+                      rec->spec_channels[4],
+                      rec->spec_channels[5],
+                      rec->spec_channels[6],
+                      rec->spec_channels[7],
+                      rec->spec_channels[8],
+                      rec->spec_channels[9],
+                      rec->spec_channels[10]);
         return;
     }
 

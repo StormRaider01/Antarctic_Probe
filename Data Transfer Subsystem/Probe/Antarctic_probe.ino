@@ -1,110 +1,94 @@
 /**
- * antarctic_probe.ino
+ * Antarctic_probe.ino
  * ===================
- * SS1 test sketch — generates synthetic probe records and transfers them
- * via ESP-NOW to the receiver dongle.
+ * Primary probe firmware (Subsystem 2 + Subsystem 1 Integration).
  *
- * In PRODUCTION, Kiyuran's state machine replaces this file. It:
- *   1. Calls ESPNOW_Init() after reed switch wakeup
- *   2. Reads ProbeRecord_t structs from FRAM (SS2's job)
- *   3. Calls ESPNOW_StartTransfer(records, count, session_start_ms)
- *   4. Calls ESPNOW_Deinit() then enters deep sleep
- *
- * This test sketch does the same steps but with RAM-generated fake data,
- * so SS1 can be validated independently of SS2 (FRAM) and SS4 (sensors).
- *
- * ── Expected Serial output (115200 baud) ─────────────────────────────────
- *   [TEST] Building 20 synthetic records...
- *   [ESPNOW] Initialised. Receiver peer registered.
- *   [ESPNOW] Sending header: 20 records, session_start=1000 ms
- *   [ESPNOW] ... (per-record ACK logs)
- *   [ESPNOW] Transfer complete. Sent: 20, Skipped: 0 / 20 total.
- *   [TEST] Done. Reset board to run again.
+ * Implements a 3-state machine:
+ *   1. DEEP_SLEEP: Lowest power state.
+ *   2. WAKE_AND_LOG: Wakes via timer, logs data to F-RAM, sleeps.
+ *   3. OFFLOAD: Wakes via external GPIO (reed switch), transmits F-RAM via ESP-NOW, sleeps.
  */
 
+#include <Arduino.h>
+#include "fram_manager.h"
 #include "espnow_transfer.h"
-#include "data_packet.h"
 
-// ── Test parameters ────────────────────────────────────────────────────────
-#define NUM_TEST_RECORDS     20
+// Define Hardware Pins and Timers
+#define REED_SWITCH_PIN GPIO_NUM_9
+#define SLEEP_DURATION_SEC (5 * 60)
+#define uS_TO_S_FACTOR 1000000ULL
 
-#define BASE_TIMESTAMP_MS    1000      // ms — session start (fake)
-#define BASE_TEMP_C          2.50f
-#define BASE_PRESSURE_DBAR   10.00f
-#define BASE_EXCITATION      512.0f    // raw ADC counts (0–4095 for 12-bit)
-#define BASE_FLUORESCENCE    128.0f
-
-#define DELTA_TIMESTAMP_MS   5000      // 5 s between records
-#define DELTA_TEMP_C         0.05f
-#define DELTA_PRESSURE_DBAR  1.00f
-#define DELTA_EXCITATION     0.0f      // hold constant for test
-#define DELTA_FLUORESCENCE   2.5f      // slight rise with depth
-
-// ── Record storage ─────────────────────────────────────────────────────────
-static ProbeRecord_t test_records[NUM_TEST_RECORDS];
-
-/* =============================================================================
-    This function is purely for testing, needs to be changed!!!
-    A similar function must replace it, one that creates records after reading in
-    lines from the FRAM storage on the probe
-    =============================================================================
-*/
-static void build_test_records(void) {
-    Serial.printf("[TEST] Building %d synthetic records...\n", NUM_TEST_RECORDS);
-
-    uint32_t ts         = BASE_TIMESTAMP_MS;
-    float    temp       = BASE_TEMP_C;
-    float    pressure   = BASE_PRESSURE_DBAR;
-    float    excitation = BASE_EXCITATION;
-    float    fluoro     = BASE_FLUORESCENCE;
-
-    for (uint32_t i = 0; i < NUM_TEST_RECORDS; i++) {
-        // ms_since_start = ts - BASE_TIMESTAMP_MS (0 for first record)
-
-        // build record comes from data_packet.h, it fills in the checksum for us
-        test_records[i] = build_record(
-            i,
-            ts - BASE_TIMESTAMP_MS,
-            temp,
-            pressure,
-            excitation,
-            fluoro
-        );
-
-        ts         += DELTA_TIMESTAMP_MS;
-        temp       += DELTA_TEMP_C;
-        pressure   += DELTA_PRESSURE_DBAR;
-        excitation += DELTA_EXCITATION;
-        fluoro     += DELTA_FLUORESCENCE;
-    }
-
-    Serial.println("[TEST] Records built OK.");
-}
-// =============================================================================
-
+// Simulated Record Number Tracker (survives deep sleep)
+RTC_DATA_ATTR int record_counter = 1;
+RTC_DATA_ATTR uint32_t session_start_time = 0; // ms
 
 void setup() {
     Serial.begin(115200);
-    delay(500);
-    Serial.println("\n===== SS1 ESP-NOW Transfer Test =====");
+    delay(100); 
+    
+    Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
 
-    build_test_records();   // might change to compressData() in production, but this is fine for testing
+    fram_init();
 
-    ESPNowStatus_t status = ESPNOW_Init();
-    if (status != ESPNOW_OK) {
-        Serial.printf("[TEST] ESPNOW_Init failed: %d\n", status);
-        while (1);
+    // Determine wake-up cause and route to the correct state
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+        // --- STATE: WAKE_AND_LOG ---
+        Serial.println("Wakeup Reason: TIMER. State -> WAKE_AND_LOG");
+        
+        uint32_t current_time_ms = (record_counter - 1) * SLEEP_DURATION_SEC * 1000;
+        
+        // Generate a simulated 15-value data string.
+        // RecordNum, ms_since_start, Temp, Pressure, 11x Spectrometer (s6=excitation, s7=fluorescence)
+        String dummy_data = String(record_counter) + "," + String(current_time_ms) + ",1400.0,2200.0,100.0,105.0,90.0,110.0,95.0,100.0,120.0,80.0,90.0,110.0,105.0";
+        
+        fram_write_record(dummy_data);
+        record_counter++;
+        
+    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0 || wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
+        // --- STATE: OFFLOAD ---
+        Serial.println("Wakeup Reason: REED SWITCH (EXT). State -> OFFLOAD");
+        
+        ProbeRecord_t records[100];
+        int count = fram_get_records(records, 100);
+        
+        if (count > 0) {
+            Serial.printf("Offloading %d records via ESP-NOW...\n", count);
+            
+            ESPNowStatus_t status = ESPNOW_Init();
+            if (status == ESPNOW_OK) {
+                // Pass records to ESP-NOW broadcast function
+                ESPNOW_StartTransfer(records, count, session_start_time, 0);
+                ESPNOW_Deinit();
+            } else {
+                Serial.printf("ESP-NOW Init failed: %d\n", status);
+            }
+        } else {
+            Serial.println("No records to offload.");
+        }
+        
+        // Clear F-RAM and reset counter
+        fram_clear();
+        record_counter = 1;
+        session_start_time = millis(); // Reset session
+        
+    } else {
+        // INITIAL BOOT
+        Serial.println("Wakeup Reason: OTHER (Initial Boot/Reset).");
+        session_start_time = millis();
     }
 
-    status = ESPNOW_StartTransfer(test_records, NUM_TEST_RECORDS, BASE_TIMESTAMP_MS);
-    if (status != ESPNOW_OK) {
-        Serial.printf("[TEST] Transfer failed: %d\n", status);
-    }
+    // --- STATE: DEEP_SLEEP ---
+    Serial.println("State -> DEEP_SLEEP. Entering low-power mode...");
+    
+    pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
+    
+    esp_sleep_enable_ext0_wakeup(REED_SWITCH_PIN, 0); // Wake on logic LOW
+    esp_sleep_enable_timer_wakeup(SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
 
-    ESPNOW_Deinit();
-    Serial.println("[TEST] Done. Reset board to run again.");
+    Serial.flush();
+    esp_deep_sleep_start();
 }
 
-void loop() {
-    // Nothing — all logic in setup() for this test
-}
+void loop() {}

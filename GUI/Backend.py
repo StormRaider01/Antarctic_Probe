@@ -39,24 +39,25 @@ class ProbeRecord:
     pressure_dbar:    float
     excitation_raw:   float
     fluorescence_raw: float
+    is_anomaly:       bool = False
 
 
 # ===========================================================================
 
 def _parse_data_line(line: str) -> ProbeRecord | None:
-    """Parse a 'DATA:entry,ms,temp,pressure,excitation,fluorescence' line."""
+    """Parse a 'DATA:entry,ms,temp,pressure,spec1...spec11' line."""
     try:
         _, csv = line.split("DATA:", 1)
         parts = csv.strip().split(",")
-        if len(parts) != 6:
+        if len(parts) != 15:
             return None
         return ProbeRecord(
             entry_num        = int(parts[0]),
             ms_since_start   = int(parts[1]),
             temperature_c    = float(parts[2]),
             pressure_dbar    = float(parts[3]),
-            excitation_raw   = float(parts[4]),
-            fluorescence_raw = float(parts[5]),
+            excitation_raw   = float(parts[9]),  # spec6 (0-indexed 5, but after 4 fields it's 4+5=9)
+            fluorescence_raw = float(parts[10]), # spec7 (4+6=10)
         )
     except (ValueError, IndexError):
         return None
@@ -142,7 +143,16 @@ def send_status_request() -> bool:
     return _send_cmd("CMD:STATUS")
 
 
-# ===========================================================================
+# Initialize the ML Detector dynamically
+try:
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), 'ml_backend'))
+    from anomaly_detector import MarineAnomalyDetector
+    _detector = MarineAnomalyDetector()
+except Exception as e:
+    logger.error("Failed to load MarineAnomalyDetector: %s", e)
+    _detector = None
 
 def sync_probe(log_callback=None, on_record=None) -> list[dict]:
     """
@@ -166,11 +176,29 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
             line = raw_line.decode("utf-8", errors="replace").strip()
 
             if line.startswith("DATA:"):
+                # Evaluate anomaly first
+                _, csv_payload = line.split("DATA:", 1)
+                is_anomaly = False
+                if _detector:
+                    is_anomaly = _detector.evaluate_reading(csv_payload.strip())
+                
                 rec = _parse_data_line(line)
                 if rec:
+                    rec.is_anomaly = is_anomaly
                     records.append(rec)
+                    
+                    mapped_rec = {
+                        "sequence":     rec.entry_num,
+                        "timestamp_ms": rec.ms_since_start,
+                        "temperature":  rec.temperature_c,
+                        "pressure":     rec.pressure_dbar,
+                        "excitation":   rec.excitation_raw,
+                        "fluorescence": rec.fluorescence_raw,
+                        "is_anomaly":   rec.is_anomaly
+                    }
+                    
                     if on_record:
-                        on_record(asdict(rec))      # pass dict so GUI stays decoupled
+                        on_record(mapped_rec)      # pass dict so GUI stays decoupled
 
             elif "[SESSION] EOF" in line:
                 if log_callback:
@@ -190,7 +218,20 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
         _ser.timeout = 2    # restore normal timeout
 
     logger.info("Sync complete. %d records received.", len(records))
-    return [asdict(r) for r in records]
+    
+    # Map all records before returning
+    mapped_records = []
+    for r in records:
+        mapped_records.append({
+            "sequence":     r.entry_num,
+            "timestamp_ms": r.ms_since_start,
+            "temperature":  r.temperature_c,
+            "pressure":     r.pressure_dbar,
+            "excitation":   r.excitation_raw,
+            "fluorescence": r.fluorescence_raw,
+            "is_anomaly":   r.is_anomaly
+        })
+    return mapped_records
 
 
 # ===========================================================================
