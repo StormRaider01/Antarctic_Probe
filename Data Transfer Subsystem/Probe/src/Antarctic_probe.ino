@@ -22,14 +22,15 @@
 #define REED_SWITCH_PIN GPIO_NUM_9  // Mapped to FireBeetle 2 C6 BOOT button
 #define uS_TO_S_FACTOR 1000000ULL
 
-// Simulated Record Number Tracker (survives deep sleep)
+// Simulated Record Number Tracker (survives deep sleep/reset)
 RTC_DATA_ATTR int record_counter = 1;
 RTC_DATA_ATTR uint32_t session_start_time = 0; // ms
+RTC_DATA_ATTR int hitl_wakeup_cause = 0;       // Workaround for C6 GPIO 9 deep sleep limitation
 
 void setup() {
     Serial.begin(115200);
     
-    // Wait for Serial to initialize (crucial for C6 USB-Serial after deep sleep)
+    // Wait for Serial to initialize
     uint32_t start_wait = millis();
     while (!Serial && (millis() - start_wait < 3000)); 
     delay(500); 
@@ -41,21 +42,28 @@ void setup() {
 
     fram_init();
 
-    // Determine wake-up cause and route to the correct state
+    // Determine wake-up cause
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+    
+    // HITL Workaround: Check if we just did a Light Sleep -> Restart cycle
+    #if DEBUG_MODE
+    if (hitl_wakeup_cause != 0) {
+        wakeup_reason = (esp_sleep_wakeup_cause_t)hitl_wakeup_cause;
+        hitl_wakeup_cause = 0; // Reset for next cycle
+    }
+    #endif
 
     if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
         // --- STATE: WAKE_AND_LOG ---
         #if DEBUG_MODE
         Serial.println("[HITL] Waking up (Timer)...");
-        Serial.println("[HITL] Generating dummy reading...");
         #else
         Serial.println("Wakeup Reason: TIMER. State -> WAKE_AND_LOG");
         #endif
         
         uint32_t current_time_ms = (record_counter - 1) * SLEEP_DURATION_SEC * 1000;
         
-        // Generate a simulated 15-value data string.
+        // Generate dummy reading
         String dummy_data = String(record_counter) + "," + String(current_time_ms) + ",1400.0,2200.0,100.0,105.0,90.0,110.0,95.0,100.0,120.0,80.0,90.0,110.0,105.0";
         
         #if DEBUG_MODE
@@ -70,21 +78,14 @@ void setup() {
         #if DEBUG_MODE
         Serial.println("[HITL] WAKEUP CAUSE: GPIO 9 (Magnetic Switch Simulated)!");
         Serial.println("[HITL] Offloading F-RAM contents...");
-        #else
-        Serial.println("Wakeup Reason: REED SWITCH (EXT). State -> OFFLOAD");
         #endif
         
         ProbeRecord_t records[100];
         int count = fram_get_records(records, 100);
         
         if (count > 0) {
-            #if DEBUG_MODE
-            Serial.printf("[HITL] Retrieving %d records from RTC Memory...\n", count);
-            #endif
-            
             ESPNowStatus_t status = ESPNOW_Init();
             if (status == ESPNOW_OK) {
-                // Arguments: (records, count, start_ms, session_date)
                 ESPNOW_StartTransfer(records, count, session_start_time, 20260511);
                 ESPNOW_Deinit();
             } else {
@@ -96,33 +97,45 @@ void setup() {
         
         fram_clear();
         record_counter = 1;
-        session_start_time = millis(); // Reset session
+        session_start_time = millis(); 
         
     } else {
         // INITIAL BOOT / MANUAL RESET
         Serial.println("Wakeup Reason: OTHER (Initial Boot/Reset).");
         session_start_time = millis();
-        record_counter = 1; // Reset counter on hard reboot
-        fram_clear();       // Clear logs on hard reboot
+        record_counter = 1; 
+        fram_clear();       
     }
 
-    // --- STATE: DEEP_SLEEP ---
-    #if DEBUG_MODE
-    Serial.printf("[HITL] Going to deep sleep for %ds...\n", SLEEP_DURATION_SEC);
-    #else
-    Serial.println("State -> DEEP_SLEEP. Entering low-power mode...");
-    #endif
-    
+    // --- STATE: DEEP_SLEEP / LIGHT_SLEEP (HITL) ---
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
     
-    // Configure wake-up sources
-    // Note: On ESP32-C6, GPIO 9 is not an LP_IO. We must use the GPIO wakeup source for Deep Sleep.
-    esp_deep_sleep_enable_gpio_wakeup(1ULL << REED_SWITCH_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
-    esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
-
+    #if DEBUG_MODE
+    Serial.printf("[HITL] Entering Light Sleep (Workaround for GPIO 9) for %ds...\n", SLEEP_DURATION_SEC);
     Serial.flush();
+    
+    // Light sleep supports GPIO 9 wakeup on C6, Deep Sleep does NOT.
+    gpio_wakeup_enable(REED_SWITCH_PIN, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+    esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
+    
+    esp_light_sleep_start();
+    
+    // After waking from light sleep, store the cause and RESTART to simulate Deep Sleep reset
+    hitl_wakeup_cause = (int)esp_sleep_get_wakeup_cause();
+    esp_restart(); 
+
+    #else
+    Serial.println("State -> DEEP_SLEEP. Entering low-power mode...");
+    Serial.flush();
+    // In production, we use Deep Sleep with LP_IOs (GPIO 0-7)
+    esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
+    esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
     esp_deep_sleep_start();
+    #endif
 }
+
+void loop() {}
 
 void loop() {}
 
