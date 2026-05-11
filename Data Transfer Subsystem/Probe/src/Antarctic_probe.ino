@@ -55,28 +55,35 @@ void setup() {
         Serial.println("[HITL] Offloading F-RAM contents...");
         #endif
         
-        ProbeRecord_t records[100];
-        int count = fram_get_records(records, 100);
+        // CRITICAL FIX: Allocate large records array on the HEAP, not the STACK.
+        // The stack is only ~8KB; 100 * 62 bytes = 6.2KB which causes a Stack Protection Fault.
+        ProbeRecord_t* records = (ProbeRecord_t*)malloc(sizeof(ProbeRecord_t) * 100);
         
-        if (count > 0) {
-            ESPNowStatus_t status = ESPNOW_Init();
-            if (status == ESPNOW_OK) {
-                ESPNOW_StartTransfer(records, count, session_start_time, 20260511);
-                ESPNOW_Deinit();
-            } else {
-                Serial.printf("ESP-NOW Init failed: %d\n", status);
-            }
+        if (records == NULL) {
+            Serial.println("FATAL: Memory allocation failed for records offload!");
         } else {
-            Serial.println("No records found in F-RAM memory.");
+            int count = fram_get_records(records, 100);
+            
+            if (count > 0) {
+                ESPNowStatus_t status = ESPNOW_Init();
+                if (status == ESPNOW_OK) {
+                    ESPNOW_StartTransfer(records, count, session_start_time, 20260511);
+                    ESPNOW_Deinit();
+                } else {
+                    Serial.printf("ESP-NOW Init failed: %d\n", status);
+                }
+            } else {
+                Serial.println("No records found in F-RAM memory.");
+            }
+            free(records); // Clean up heap
         }
         
         fram_clear();
         record_counter = 1;
         session_start_time = millis(); 
         
-    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER || reset_reason == ESP_RST_DEEPSLEEP) {
+    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER || (reset_reason == ESP_RST_DEEPSLEEP && wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED)) {
         // --- STATE: WAKE_AND_LOG ---
-        // (If Reset Reason is 8 but cause is 0, we treat it as Timer wakeup)
         #if DEBUG_MODE
         Serial.println("[HITL] Waking up (Timer/Cycle)...");
         #endif
@@ -112,7 +119,9 @@ void setup() {
     esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
 
     Serial.flush();
-    delay(1000); // Wait for USB-CDC to stabilize before sleep
+    // Increasing delay even further to 2 seconds. The C6 USB-CDC PHY is 
+    // highly sensitive to power-down transitions.
+    delay(2000); 
     esp_deep_sleep_start();
     
     // If we reach here, sleep failed
