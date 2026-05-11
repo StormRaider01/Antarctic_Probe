@@ -233,6 +233,75 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
         })
     return mapped_records
 
+def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
+    """
+    Simulates incoming data by reading dummy_marine_data.csv line by line.
+    Passes data exactly like sync_probe, 1 row every 0.5s.
+    """
+    import time
+    
+    csv_path = os.path.join(os.path.dirname(__file__), 'ml_backend', 'dummy_marine_data.csv')
+    if not os.path.exists(csv_path):
+        if log_callback:
+            log_callback(f"[ERROR] Dummy data file not found at {csv_path}")
+        return []
+
+    if log_callback:
+        log_callback("[SESSION] Simulated transfer started.")
+
+    records: list[ProbeRecord] = []
+
+    with open(csv_path, 'r') as f:
+        next(f) # Skip header
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
+            data_str = f"DATA:{line}"
+            
+            # Evaluate anomaly first
+            is_anomaly = False
+            if _detector:
+                is_anomaly = _detector.evaluate_reading(line)
+            
+            rec = _parse_data_line(data_str)
+            if rec:
+                rec.is_anomaly = is_anomaly
+                records.append(rec)
+                
+                mapped_rec = {
+                    "sequence":     rec.entry_num,
+                    "timestamp_ms": rec.ms_since_start,
+                    "temperature":  rec.temperature_c,
+                    "pressure":     rec.pressure_dbar,
+                    "excitation":   rec.excitation_raw,
+                    "fluorescence": rec.fluorescence_raw,
+                    "is_anomaly":   rec.is_anomaly
+                }
+                
+                if on_record:
+                    on_record(mapped_rec)
+            
+            time.sleep(0.5)
+
+    if log_callback:
+        log_callback("[SESSION] EOF")
+
+    logger.info("Simulation complete. %d records processed.", len(records))
+
+    mapped_records = []
+    for r in records:
+        mapped_records.append({
+            "sequence":     r.entry_num,
+            "timestamp_ms": r.ms_since_start,
+            "temperature":  r.temperature_c,
+            "pressure":     r.pressure_dbar,
+            "excitation":   r.excitation_raw,
+            "fluorescence": r.fluorescence_raw,
+            "is_anomaly":   r.is_anomaly
+        })
+    return mapped_records
 
 # ===========================================================================
 # Thread helpers for running blocking code without freezing the GUI

@@ -218,6 +218,15 @@ class ProbeApp(ctk.CTk):
         )
         self._retrieve_btn.pack(**pad)
 
+        # Dev Mode: Simulate Data
+        self._simulate_btn = ctk.CTkButton(
+            side, text="🧪  Dev Mode: Simulate", width=178,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color="#C62828",
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
+            corner_radius=6, command=self._on_simulate_data
+        )
+        self._simulate_btn.pack(**pad)
+
 
 
 
@@ -702,15 +711,41 @@ class ProbeApp(ctk.CTk):
             if err or records is None:
                 self._log(f"Sync failed: {err}")
                 return
-            self._records.extend(records)
-            self._display_records(records)
+            # Records are appended live, so no need to append them again here
             self._log(f"Retrieval complete — {len(records)} records received.")
 
         bk.run_in_thread(
-            lambda: bk.sync_probe(log_callback=_log_cb),
+            lambda: bk.sync_probe(log_callback=_log_cb, on_record=self._handle_live_record),
             _done
         )
 
+
+    def _on_simulate_data(self):
+        if self._busy:
+            return
+        self._log("Starting Dev Mode: Data Simulation...")
+        self._set_busy(True)
+
+        def _log_cb(msg):
+            self._log(msg)
+
+        def _done(records, err):
+            self._set_busy(False)
+            if err or records is None:
+                self._log(f"Simulation failed: {err}")
+                return
+            self._log(f"Simulation complete — {len(records)} records processed.")
+
+        bk.run_in_thread(
+            lambda: bk.simulate_incoming_data(log_callback=_log_cb, on_record=self._handle_live_record),
+            _done
+        )
+
+    def _handle_live_record(self, r):
+        def _do():
+            self._records.append(r)
+            self._display_records([r])
+        self.after(0, _do)
 
     def _on_prepare_dive(self):
         if self._busy or not self._connected:
