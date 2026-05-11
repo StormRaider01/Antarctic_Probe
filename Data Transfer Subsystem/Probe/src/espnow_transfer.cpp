@@ -51,9 +51,9 @@ static volatile uint32_t s_acked_entry = 0;       // which entry was ACKed
  * Called by ESP-NOW stack after esp_now_send() completes (success or fail).
  * status == ESP_NOW_SEND_SUCCESS means the packet was delivered at the MAC layer.
  * It does NOT mean the receiver's application has processed it.
+ * Note: Signature changed in ESP32 Arduino Core 3.0.0
  */
-static void on_send(const uint8_t* mac, esp_now_send_status_t status) {
-
+static void on_send(const wifi_tx_info_t* info, esp_now_send_status_t status) {
     s_send_success = (status == ESP_NOW_SEND_SUCCESS);
     s_send_done    = true;
 }

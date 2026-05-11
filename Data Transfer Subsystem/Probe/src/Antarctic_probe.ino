@@ -82,7 +82,9 @@ void setup() {
             
             ESPNowStatus_t status = ESPNOW_Init();
             if (status == ESPNOW_OK) {
-                ESPNOW_StartTransfer(records, count, session_start_time, 0);
+                // Pass records to ESP-NOW broadcast function. 
+                // Arguments: (records, count, start_ms, session_date)
+                ESPNOW_StartTransfer(records, count, session_start_time, 20260511);
                 ESPNOW_Deinit();
             } else {
                 Serial.printf("ESP-NOW Init failed: %d\n", status);
@@ -110,7 +112,8 @@ void setup() {
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
     
     // Configure wake-up sources
-    esp_sleep_enable_ext0_wakeup(REED_SWITCH_PIN, 0); // Wake on logic LOW (BOOT button pressed)
+    // Note: ESP32-C6 (Arduino Core 3.x) does not support ext0. Using ext1 instead.
+    esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
 
     Serial.flush();

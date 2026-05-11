@@ -50,8 +50,9 @@ typedef struct __attribute__((packed)) {
     uint8_t  pkt_type;          // Always PKT_TYPE_HEADER (0xA0)
     uint32_t record_count;      // Total records that will follow
     uint32_t session_start_ms;  // millis() at first sensor reading this session
-    uint8_t  firmware_version;  // Bump when wire format changes (break old parsers loudly)
-    uint8_t  reserved[2];       // Pad to 12 bytes — set to 0
+    uint32_t session_date;      // YYYYMMDD format (added to match espnow_transfer.cpp)
+    uint8_t  firmware_version;  // Bump when wire format changes
+    uint8_t  reserved[2];       // Pad
 } SessionHeader_t;
 
 // =============================================================================
@@ -87,8 +88,8 @@ typedef struct __attribute__((packed)) {
 // =============================================================================
 
 // Compile-time size checks 
-static_assert(sizeof(SessionHeader_t) == 12, "SessionHeader_t size mismatch");
-static_assert(sizeof(ProbeRecord_t)   == 26, "ProbeRecord_t size mismatch");
+static_assert(sizeof(SessionHeader_t) == 16, "SessionHeader_t size mismatch");
+static_assert(sizeof(ProbeRecord_t)   == 62, "ProbeRecord_t size mismatch");
 
 // =============================================================================
 
