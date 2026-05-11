@@ -34,44 +34,20 @@ void setup() {
     
     Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
     
-    // Diagnostic: Check Reset Reason
+    // Diagnostic: Check Reset Reason and Wakeup Cause
     esp_reset_reason_t reset_reason = esp_reset_reason();
-    Serial.printf("Reset Reason: %d ", reset_reason);
-    switch (reset_reason) {
-        case ESP_RST_POWERON: Serial.println("(Power-on)"); break;
-        case ESP_RST_SW:      Serial.println("(Software Reset)"); break;
-        case ESP_RST_DEEPSLEEP: Serial.println("(Deep Sleep Wakeup)"); break;
-        case ESP_RST_PANIC:   Serial.println("(Panic/Crash)"); break;
-        default:              Serial.println("(Other)"); break;
-    }
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+    
+    Serial.printf("Diagnostics -> Reset Reason: %d, Wakeup Cause: %d\n", (int)reset_reason, (int)wakeup_reason);
 
     #if DEBUG_MODE
     Serial.println("[HITL] DEBUG_MODE ACTIVE (Timer: 5s, Trigger: D6/GPIO 1)");
-    Serial.println("[HITL] WIRING: Connect button between D6 (GPIO 1) and GND.");
     #endif
 
     fram_init();
 
-    // Determine wake-up cause
-    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-
-    if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
-        // --- STATE: WAKE_AND_LOG ---
-        #if DEBUG_MODE
-        Serial.println("[HITL] Waking up (Timer)...");
-        #endif
-        
-        uint32_t current_time_ms = (record_counter - 1) * SLEEP_DURATION_SEC * 1000;
-        String dummy_data = String(record_counter) + "," + String(current_time_ms) + ",1400.0,2200.0,100.0,105.0,90.0,110.0,95.0,100.0,120.0,80.0,90.0,110.0,105.0";
-        
-        #if DEBUG_MODE
-        Serial.println("[HITL] Saving to F-RAM: " + dummy_data);
-        #endif
-        
-        fram_write_record(dummy_data);
-        record_counter++;
-        
-    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1 || wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
+    // Logic: If it's a Deep Sleep wakeup, determine if it's the Button or Timer
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1 || wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
         // --- STATE: OFFLOAD ---
         #if DEBUG_MODE
         Serial.println("[HITL] WAKEUP CAUSE: GPIO 1 (Magnetic Switch Simulated)!");
@@ -90,18 +66,36 @@ void setup() {
                 Serial.printf("ESP-NOW Init failed: %d\n", status);
             }
         } else {
-            Serial.println("No records to offload.");
+            Serial.println("No records found in F-RAM memory.");
         }
         
         fram_clear();
         record_counter = 1;
         session_start_time = millis(); 
         
+    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER || reset_reason == ESP_RST_DEEPSLEEP) {
+        // --- STATE: WAKE_AND_LOG ---
+        // (If Reset Reason is 8 but cause is 0, we treat it as Timer wakeup)
+        #if DEBUG_MODE
+        Serial.println("[HITL] Waking up (Timer/Cycle)...");
+        #endif
+        
+        uint32_t current_time_ms = (record_counter - 1) * SLEEP_DURATION_SEC * 1000;
+        String dummy_data = String(record_counter) + "," + String(current_time_ms) + ",1400.0,2200.0,100.0,105.0,90.0,110.0,95.0,100.0,120.0,80.0,90.0,110.0,105.0";
+        
+        #if DEBUG_MODE
+        Serial.println("[HITL] Saving to F-RAM: " + dummy_data);
+        #endif
+        
+        fram_write_record(dummy_data);
+        record_counter++;
+        
     } else {
         // INITIAL BOOT / MANUAL RESET
-        Serial.println("System Start: (Initial Boot or Manual Reset).");
-        // We do NOT clear F-RAM here anymore, so it survives software resets/loops
+        Serial.println("System Start: (Initial Power-On).");
         if (session_start_time == 0) session_start_time = millis();
+        // Option: clear memory on hard reset to start fresh
+        // fram_clear(); 
     }
 
     // --- STATE: DEEP_SLEEP ---
@@ -114,7 +108,7 @@ void setup() {
     // Configure wake-up sources
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
     
-    // Ensure RTC peripherals stay powered to handle the pull-up and wakeup
+    // Ensure LP peripherals stay powered for pull-ups
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
     
     esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
