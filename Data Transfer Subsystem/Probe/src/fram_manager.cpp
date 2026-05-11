@@ -2,7 +2,7 @@
 
 // Simulated F-RAM constraints
 #define MAX_RECORDS 100
-#define MAX_PAYLOAD_SIZE 55
+#define MAX_PAYLOAD_SIZE 128
 
 // Use RTC_DATA_ATTR to retain variables across ESP32 Deep Sleep cycles
 RTC_DATA_ATTR int fram_record_count = 0;

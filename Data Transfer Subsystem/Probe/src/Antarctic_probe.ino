@@ -16,7 +16,8 @@
 
 // PIN DEFINITION
 // NOTE: On ESP32-C6 FireBeetle 2, LP-IOs (RTC IOs) are GPIO 0-7.
-// D6 is GPIO 1. For HITL testing, wire your external push button between D6 and GND.
+// D6 is GPIO 1, which is a clear digital LP-IO.
+// For HITL testing, wire your external push button between D6 (GPIO 1) and GND.
 #define REED_SWITCH_PIN GPIO_NUM_1  
 #define uS_TO_S_FACTOR 1000000ULL
 
@@ -94,8 +95,6 @@ void setup() {
         // INITIAL BOOT / MANUAL RESET
         Serial.println("System Start: (Initial Power-On).");
         if (session_start_time == 0) session_start_time = millis();
-        // Option: clear memory on hard reset to start fresh
-        // fram_clear(); 
     }
 
     // --- STATE: DEEP_SLEEP ---
@@ -108,14 +107,12 @@ void setup() {
     // Configure wake-up sources
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
     
-    // Ensure LP peripherals stay powered for pull-ups
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
-    
+    // Note: Removed esp_sleep_pd_config to prevent instant reboots on some C6 revisions
     esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
 
     Serial.flush();
-    delay(200); 
+    delay(1000); // Wait for USB-CDC to stabilize before sleep
     esp_deep_sleep_start();
     
     // If we reach here, sleep failed
