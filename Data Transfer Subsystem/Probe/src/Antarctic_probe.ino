@@ -47,7 +47,7 @@ void setup() {
 
     fram_init();
 
-    // Logic: If it's a Deep Sleep wakeup, determine if it's the Button or Timer
+    // Logic: Determine if it's an Offload trigger (Button) or a Logging cycle (Timer/Reset)
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1 || wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
         // --- STATE: OFFLOAD ---
         #if DEBUG_MODE
@@ -55,15 +55,9 @@ void setup() {
         Serial.println("[HITL] Offloading F-RAM contents...");
         #endif
         
-        // CRITICAL FIX: Allocate large records array on the HEAP, not the STACK.
-        // The stack is only ~8KB; 100 * 62 bytes = 6.2KB which causes a Stack Protection Fault.
         ProbeRecord_t* records = (ProbeRecord_t*)malloc(sizeof(ProbeRecord_t) * 100);
-        
-        if (records == NULL) {
-            Serial.println("FATAL: Memory allocation failed for records offload!");
-        } else {
+        if (records != NULL) {
             int count = fram_get_records(records, 100);
-            
             if (count > 0) {
                 ESPNowStatus_t status = ESPNOW_Init();
                 if (status == ESPNOW_OK) {
@@ -75,7 +69,7 @@ void setup() {
             } else {
                 Serial.println("No records found in F-RAM memory.");
             }
-            free(records); // Clean up heap
+            free(records);
         }
         
         fram_clear();
@@ -84,7 +78,11 @@ void setup() {
         
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER || (reset_reason == ESP_RST_DEEPSLEEP && wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED)) {
         // --- STATE: WAKE_AND_LOG ---
+        // HITL WORKAROUND: If the C6 wakes up instantly due to USB-CDC interference, 
+        // we enforce the 5s interval delay here in setup to maintain the testing timeline.
         #if DEBUG_MODE
+        Serial.printf("[HITL] Cycle interval delay (%ds)...\n", SLEEP_DURATION_SEC);
+        delay(SLEEP_DURATION_SEC * 1000); 
         Serial.println("[HITL] Waking up (Timer/Cycle)...");
         #endif
         
@@ -113,20 +111,11 @@ void setup() {
     
     // Configure wake-up sources
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
-    
-    // CRITICAL FIX: Clear ALL default wakeup sources first.
-    // On the ESP32-C6, the USB Serial/JTAG peripheral is registered as a wakeup
-    // source by default. When connected via USB-CDC, the host PC's keep-alive
-    // signals immediately wake the chip after it enters deep sleep, making the
-    // timer wakeup irrelevant. Clearing all sources first ensures ONLY our
-    // intended timer and GPIO button sources can wake the chip.
-    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
-    
     esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
 
     Serial.flush();
-    delay(100); // Minimal delay for serial buffer only
+    delay(1000); 
     esp_deep_sleep_start();
     
     // If we reach here, sleep failed
