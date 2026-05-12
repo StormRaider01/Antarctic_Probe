@@ -77,7 +77,7 @@ void log_sensor_data() {
 }
 
 void setup() {
-    // 1. Immediate hardware evaluation (Silent)
+    // 1. Immediate hardware evaluation
     esp_reset_reason_t reset_reason = esp_reset_reason();
     esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
@@ -86,83 +86,91 @@ void setup() {
     bool is_button_wakeup = (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1 || wakeup_cause == ESP_SLEEP_WAKEUP_GPIO);
     bool is_spurious = (is_deepsleep_reset && wakeup_cause == ESP_SLEEP_WAKEUP_UNDEFINED);
 
-    // If we wake up from deep sleep but there is no valid trigger (USB noise) 
-    // AND we are in STANDBY, we bypass the logging/serial logic entirely.
-    if (!(is_spurious && mission_state == STATE_STANDBY)) {
-        
-        bool trigger_offload = false;
-        bool skip_logging = false;
+    // Initialise Serial
+    Serial.begin(115200);
+    uint32_t serial_wait = millis();
+    if (!is_deepsleep_reset) {
+        while (!Serial && (millis() - serial_wait < 3000));
+        delay(500);
+    } else {
+        // Shorter wait but still necessary for CDC stability
+        while (!Serial && (millis() - serial_wait < 800));
+    }
 
-        // --- CLEAN PoC TIMING: Enforce delays BEFORE printing logs ---
-        if (is_deepsleep_reset) {
-            if (mission_state == STATE_ARMED && !is_button_wakeup) {
+    // --- HANDLE SPURIOUS WAKEUPS IN STANDBY ---
+    if (is_spurious && mission_state == STATE_STANDBY) {
+        // If it's a quick loop, don't flood the monitor
+        goto sleep_transition;
+    }
+
+    // 3. Print Logs & State Routing
+    Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
+    
+    if (!is_deepsleep_reset) {
+        Serial.println("SYSTEM START: Initial Power-On / Manual Reset");
+        Serial.println("MISSION STATE: 0 (STANDBY)");
+        fram_init();
+        fram_clear();
+        record_counter = 1;
+        session_start_time = 0;
+        mission_state = STATE_STANDBY;
+    } else {
+        Serial.printf("Diagnostics -> State: %d, Reset: %d, Wakeup: %d\n", mission_state, (int)reset_reason, (int)wakeup_cause);
+        fram_init();
+
+        if (mission_state == STATE_STANDBY) {
+            if (is_button_wakeup) {
+                Serial.println("[HITL] STATE 0 -> 1: PROBE ARMED. Sinking to depth...");
+                mission_state = STATE_ARMED;
+                session_start_time = millis();
+                Serial.flush();
+                delay(500); // Give host time to see the message
+            }
+        } 
+        else if (mission_state == STATE_ARMED) {
+            if (!is_button_wakeup) {
+                Serial.printf("[HITL] STATE 1 (ARMED): Sinking interval delay (%ds)...\n", SINKING_DELAY_SEC);
+                Serial.flush();
                 delay(SINKING_DELAY_SEC * 1000);
+                Serial.println("[HITL] STATE 1 -> 2: Sinking delay complete. Starting LOGGING.");
                 mission_state = STATE_LOGGING;
-            } 
-            else if (mission_state == STATE_LOGGING && !is_button_wakeup) {
+                log_sensor_data();
+            }
+        }
+        else if (mission_state == STATE_LOGGING) {
+            if (is_button_wakeup) {
+                handle_offload();
+            } else {
+                // Interval wait with interactive prompt
+                Serial.printf("[HITL] STATE 2 (LOGGING): Interval delay (%ds). Press D6 to offload.\n", LOGGING_INTERVAL_SEC);
+                Serial.flush();
                 uint32_t wait_start = millis();
+                bool triggered = false;
                 while (millis() - wait_start < (LOGGING_INTERVAL_SEC * 1000)) {
                     if (digitalRead(REED_SWITCH_PIN) == LOW) {
-                        trigger_offload = true;
+                        handle_offload();
+                        triggered = true;
                         break;
                     }
                     delay(10);
                 }
+                if (!triggered) log_sensor_data();
             }
-            else if (is_button_wakeup) {
-                trigger_offload = true;
-            }
-        }
-
-        // 2. Start Serial (After interval)
-        Serial.begin(115200);
-        uint32_t serial_wait = millis();
-        if (!is_deepsleep_reset) {
-            while (!Serial && (millis() - serial_wait < 3000));
-            delay(500);
-        } else {
-            while (!Serial && (millis() - serial_wait < 500));
-        }
-
-        // 3. Print Logs
-        Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
-        if (!is_deepsleep_reset) {
-            Serial.println("SYSTEM START: Initial Power-On / Manual Reset");
-            Serial.println("MISSION STATE: 0 (STANDBY)");
-            fram_init();
-            fram_clear();
-            record_counter = 1;
-            session_start_time = 0;
-            mission_state = STATE_STANDBY;
-        } else {
-            Serial.printf("Diagnostics -> State: %d, Reset: %d, Wakeup: %d\n", mission_state, (int)reset_reason, (int)wakeup_cause);
-            fram_init();
-
-            if (trigger_offload) {
-                if (mission_state == STATE_STANDBY) {
-                    Serial.println("[HITL] STATE 0 -> 1: PROBE ARMED. Sinking to depth...");
-                    mission_state = STATE_ARMED;
-                    session_start_time = millis();
-                } else if (mission_state == STATE_LOGGING) {
-                    handle_offload();
-                    skip_logging = true;
-                }
-            } else if (mission_state == STATE_LOGGING && !skip_logging) {
-                log_sensor_data();
-            }
-        }
-        
-        if (mission_state == STATE_STANDBY) {
-            Serial.println("[HITL] Entering Indefinite Deep Sleep (Waiting for Arming)...");
-        } else {
-            int sleep_time = (mission_state == STATE_ARMED) ? SINKING_DELAY_SEC : LOGGING_INTERVAL_SEC;
-            Serial.printf("[HITL] Entering Deep Sleep for %ds...\n", sleep_time);
-            esp_sleep_enable_timer_wakeup((uint64_t)sleep_time * uS_TO_S_FACTOR);
         }
     }
 
+    sleep_transition:
     // --- SLEEP CONFIGURATION ---
     esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
+    
+    if (mission_state == STATE_STANDBY) {
+        if (!is_spurious) Serial.println("[HITL] Entering Indefinite Deep Sleep (Waiting for Arming)...");
+    } else {
+        int sleep_time = (mission_state == STATE_ARMED) ? SINKING_DELAY_SEC : LOGGING_INTERVAL_SEC;
+        Serial.printf("[HITL] Entering Deep Sleep for %ds...\n", sleep_time);
+        esp_sleep_enable_timer_wakeup((uint64_t)sleep_time * uS_TO_S_FACTOR);
+    }
+
     Serial.flush();
     delay(1000); 
     esp_deep_sleep_start();
