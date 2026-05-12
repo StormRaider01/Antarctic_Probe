@@ -2,7 +2,7 @@
 
 // Simulated F-RAM constraints
 #define MAX_RECORDS 100
-#define MAX_PAYLOAD_SIZE 55
+#define MAX_PAYLOAD_SIZE 128
 
 // Use RTC_DATA_ATTR to retain variables across ESP32 Deep Sleep cycles
 RTC_DATA_ATTR int fram_record_count = 0;
@@ -33,6 +33,12 @@ int fram_get_records(ProbeRecord_t* out_records, int max_records) {
         float temp, pressure;
         float spec[11];
         
+        // Print raw string for HITL validation
+        Serial.print("[HITL] RTC Memory Read [");
+        Serial.print(i);
+        Serial.print("]: ");
+        Serial.println(simulated_fram[i]);
+
         // sscanf parses the 15-value string into the corresponding variables
         int parsed = sscanf(simulated_fram[i], "%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
                &entry_num, &time_ms, &temp, &pressure,

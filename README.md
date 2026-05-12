@@ -96,3 +96,18 @@ python GUI.py
 - Click **"Connect"**. The backend will automatically handshake with the receiver dongle.
 - Click **"Retrieve Data"**. 
 - Simulate the probe retrieval by triggering GPIO 9 (Reed Switch) on the probe hardware. The F-RAM records will transfer wirelessly, be evaluated by the ML model, and plot directly to the dashboard.
+
+### 4. Software Simulation Mode (Dev Mode)
+If you do not have the physical hardware connected, you can simulate the full data processing and ML pipeline locally:
+- Open the GUI (`python GUI.py`).
+- Click **"🧪 Dev Mode: Simulate"** in the sidebar.
+- The GUI will ingest the local synthetic dataset (`dummy_marine_data.csv`), simulating an ESP-NOW data stream at 0.5-second intervals. 
+- Use the **Playback Control Panel** (Pause/Play, Restart, Stop) that appears to interactively control the simulation flow. Watch the graphs update live and verify the red anomaly flags without needing the physical ESP32 boards.
+
+### 5. Hardware-in-the-Loop (HITL) Debug Mode
+For physical validation without physical sensors or a magnetic switch:
+1. Open `Data Transfer Subsystem/Probe/Antarctic_probe.ino`.
+2. Ensure `#define DEBUG_MODE 1` is set at the top.
+3. Flash the firmware to your ESP32-C6.
+4. **Timer Validation**: Watch the Serial Monitor. The board will wake every 5 seconds, log a dummy record to RTC memory, and return to sleep.
+5. **Interrupt Validation**: Press the physical **BOOT button** (GPIO 9) on the FireBeetle 2. This simulates the magnetic reed switch. Upon waking, the board will enter the `OFFLOAD` state and dump all accumulated RTC memory records to the Serial Monitor.
