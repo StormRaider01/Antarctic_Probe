@@ -36,6 +36,7 @@ RTC_DATA_ATTR uint32_t session_start_time = 0;
 void handle_offload() {
     Serial.println("\n[HITL] WAKEUP CAUSE: GPIO 1 (Magnetic Switch Simulated)!");
     Serial.println("[HITL] STATE 3 (OFFLOAD): Retrieving records from F-RAM...");
+    Serial.flush();
     
     ProbeRecord_t* records = (ProbeRecord_t*)malloc(sizeof(ProbeRecord_t) * 100);
     if (records != NULL) {
@@ -60,6 +61,7 @@ void handle_offload() {
     session_start_time = 0;
     mission_state = STATE_STANDBY;
     Serial.println("[HITL] Offload complete. Returning to STATE 0 (STANDBY).");
+    Serial.flush();
 }
 
 /**
@@ -74,39 +76,37 @@ void log_sensor_data() {
     Serial.println("[HITL] Saving to F-RAM: " + dummy_data);
     fram_write_record(dummy_data);
     record_counter++;
+    Serial.flush();
 }
 
 void setup() {
-    // 1. Immediate hardware evaluation
+    // 1. Evaluate wakeup cause immediately
     esp_reset_reason_t reset_reason = esp_reset_reason();
     esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
 
-    bool is_deepsleep_reset = (reset_reason == ESP_RST_DEEPSLEEP);
-    bool is_button_wakeup = (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1 || wakeup_cause == ESP_SLEEP_WAKEUP_GPIO);
-    bool is_spurious = (is_deepsleep_reset && wakeup_cause == ESP_SLEEP_WAKEUP_UNDEFINED);
+    bool is_deepsleep = (reset_reason == ESP_RST_DEEPSLEEP);
+    bool is_button = (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1 || wakeup_cause == ESP_SLEEP_WAKEUP_GPIO);
+    bool is_spurious = (is_deepsleep && wakeup_cause == ESP_SLEEP_WAKEUP_UNDEFINED);
 
-    // Initialise Serial
+    // 2. Robust Serial Initialisation
     Serial.begin(115200);
-    uint32_t serial_wait = millis();
-    if (!is_deepsleep_reset) {
-        while (!Serial && (millis() - serial_wait < 3000));
-        delay(500);
-    } else {
-        // Shorter wait but still necessary for CDC stability
-        while (!Serial && (millis() - serial_wait < 800));
-    }
+    uint32_t wait_start = millis();
+    // Give the USB-CDC plenty of time to stabilize on the host
+    while (!Serial && (millis() - wait_start < 2000));
+    delay(500); 
 
-    // --- HANDLE SPURIOUS WAKEUPS IN STANDBY ---
+    // --- SPURIOUS WAKEUP SUPPRESSION ---
+    // If it's just noise, go back to sleep with minimal chatter
     if (is_spurious && mission_state == STATE_STANDBY) {
-        // If it's a quick loop, don't flood the monitor
+        // We print a single dot to show the chip is alive but looping
+        Serial.print("."); 
         goto sleep_transition;
     }
 
-    // 3. Print Logs & State Routing
     Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
     
-    if (!is_deepsleep_reset) {
+    if (!is_deepsleep) {
         Serial.println("SYSTEM START: Initial Power-On / Manual Reset");
         Serial.println("MISSION STATE: 0 (STANDBY)");
         fram_init();
@@ -118,35 +118,51 @@ void setup() {
         Serial.printf("Diagnostics -> State: %d, Reset: %d, Wakeup: %d\n", mission_state, (int)reset_reason, (int)wakeup_cause);
         fram_init();
 
+        // --- STATE 0: STANDBY ---
         if (mission_state == STATE_STANDBY) {
-            if (is_button_wakeup) {
+            if (is_button) {
                 Serial.println("[HITL] STATE 0 -> 1: PROBE ARMED. Sinking to depth...");
                 mission_state = STATE_ARMED;
                 session_start_time = millis();
+                // Enforce 1s delay so the user sees the arming message
                 Serial.flush();
-                delay(500); // Give host time to see the message
+                delay(1000);
             }
         } 
+        // --- STATE 1: ARMED (Sinking) ---
         else if (mission_state == STATE_ARMED) {
-            if (!is_button_wakeup) {
-                Serial.printf("[HITL] STATE 1 (ARMED): Sinking interval delay (%ds)...\n", SINKING_DELAY_SEC);
+            if (is_button) {
+                // If button pressed during ARMED, jump straight to logging
+                Serial.println("[HITL] Manual Trigger: Bypassing sinking delay.");
+                mission_state = STATE_LOGGING;
+                log_sensor_data();
+            } else {
+                Serial.printf("[HITL] STATE 1 (ARMED): Sinking interval wait (%ds)...\n", SINKING_DELAY_SEC);
                 Serial.flush();
-                delay(SINKING_DELAY_SEC * 1000);
+                // Real-time polling wait
+                uint32_t sinking_start = millis();
+                while (millis() - sinking_start < (SINKING_DELAY_SEC * 1000)) {
+                    if (digitalRead(REED_SWITCH_PIN) == LOW) {
+                        Serial.println("[HITL] Sinking interrupted by manual trigger.");
+                        break;
+                    }
+                    delay(10);
+                }
                 Serial.println("[HITL] STATE 1 -> 2: Sinking delay complete. Starting LOGGING.");
                 mission_state = STATE_LOGGING;
                 log_sensor_data();
             }
         }
+        // --- STATE 2: LOGGING ---
         else if (mission_state == STATE_LOGGING) {
-            if (is_button_wakeup) {
+            if (is_button) {
                 handle_offload();
             } else {
-                // Interval wait with interactive prompt
-                Serial.printf("[HITL] STATE 2 (LOGGING): Interval delay (%ds). Press D6 to offload.\n", LOGGING_INTERVAL_SEC);
+                Serial.printf("[HITL] STATE 2 (LOGGING): Cycle wait (%ds). Press D6 to offload.\n", LOGGING_INTERVAL_SEC);
                 Serial.flush();
-                uint32_t wait_start = millis();
+                uint32_t logging_start = millis();
                 bool triggered = false;
-                while (millis() - wait_start < (LOGGING_INTERVAL_SEC * 1000)) {
+                while (millis() - logging_start < (LOGGING_INTERVAL_SEC * 1000)) {
                     if (digitalRead(REED_SWITCH_PIN) == LOW) {
                         handle_offload();
                         triggered = true;
@@ -160,7 +176,7 @@ void setup() {
     }
 
     sleep_transition:
-    // --- SLEEP CONFIGURATION ---
+    // --- FINAL SLEEP PREPARATION ---
     esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
     
     if (mission_state == STATE_STANDBY) {
@@ -172,7 +188,7 @@ void setup() {
     }
 
     Serial.flush();
-    delay(1000); 
+    delay(1000); // CRITICAL: Stability delay for USB-CDC PHY shutdown
     esp_deep_sleep_start();
 }
 
