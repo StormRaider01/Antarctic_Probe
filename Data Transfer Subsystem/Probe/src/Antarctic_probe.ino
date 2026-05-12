@@ -15,10 +15,10 @@
 #endif
 
 // PIN DEFINITION
-// On FireBeetle 2 C6, GPIO 0-7 are LP-IOs. 
-// We are switching to GPIO 2 (labeled A1) to avoid potential conflicts with GPIO 1 (D6).
-// HITL WIRING: Connect button between A1 (GPIO 2) and GND.
-#define REED_SWITCH_PIN GPIO_NUM_2  
+// NOTE: On ESP32-C6 FireBeetle 2, LP-IOs (RTC IOs) are GPIO 0-7.
+// D6 is GPIO 1, which is a clear digital LP-IO.
+// For HITL testing, wire your external push button between D6 (GPIO 1) and GND.
+#define REED_SWITCH_PIN GPIO_NUM_1  
 #define uS_TO_S_FACTOR 1000000ULL
 
 // Simulated Record Number Tracker (survives deep sleep/reset)
@@ -42,25 +42,29 @@ void setup() {
     Serial.printf("Diagnostics -> Reset Reason: %d, Wakeup Cause: %d\n", (int)reset_reason, (int)wakeup_reason);
 
     #if DEBUG_MODE
-    Serial.println("[HITL] DEBUG_MODE ACTIVE (Timer: 5s, Trigger: A1/GPIO 2)");
-    Serial.println("[HITL] WIRING: Move button to A1 (GPIO 2) and GND.");
+    Serial.println("[HITL] DEBUG_MODE ACTIVE (Timer: 5s, Trigger: D6/GPIO 1)");
     #endif
 
     fram_init();
 
-    // Logic: Determine mission state
+    // Logic: If it's a Deep Sleep wakeup, determine if it's the Button or Timer
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1 || wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
         // --- STATE: OFFLOAD ---
         #if DEBUG_MODE
-        Serial.println("[HITL] WAKEUP CAUSE: GPIO 2 (Magnetic Switch Simulated)!");
+        Serial.println("[HITL] WAKEUP CAUSE: GPIO 1 (Magnetic Switch Simulated)!");
         Serial.println("[HITL] Offloading F-RAM contents...");
         #endif
         
+        // CRITICAL FIX: Allocate large records array on the HEAP, not the STACK.
+        // The stack is only ~8KB; 100 * 62 bytes = 6.2KB which causes a Stack Protection Fault.
         ProbeRecord_t* records = (ProbeRecord_t*)malloc(sizeof(ProbeRecord_t) * 100);
-        if (records != NULL) {
+        
+        if (records == NULL) {
+            Serial.println("FATAL: Memory allocation failed for records offload!");
+        } else {
             int count = fram_get_records(records, 100);
+            
             if (count > 0) {
-                // Initialize ESP-NOW with a fresh start
                 ESPNowStatus_t status = ESPNOW_Init();
                 if (status == ESPNOW_OK) {
                     ESPNOW_StartTransfer(records, count, session_start_time, 20260511);
@@ -71,7 +75,7 @@ void setup() {
             } else {
                 Serial.println("No records found in F-RAM memory.");
             }
-            free(records);
+            free(records); // Clean up heap
         }
         
         fram_clear();
@@ -108,21 +112,24 @@ void setup() {
     #endif
     
     // Configure wake-up sources
-    // Use GPIO 2 (A1) instead of GPIO 1 (D6)
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
     
-    // Explicitly enable internal pull-up for deep sleep on C6
-    gpio_set_pull_mode(REED_SWITCH_PIN, GPIO_PULLUP_ONLY);
+    // CRITICAL FIX: Clear ALL default wakeup sources first.
+    // On the ESP32-C6, the USB Serial/JTAG peripheral is registered as a wakeup
+    // source by default. When connected via USB-CDC, the host PC's keep-alive
+    // signals immediately wake the chip after it enters deep sleep, making the
+    // timer wakeup irrelevant. Clearing all sources first ensures ONLY our
+    // intended timer and GPIO button sources can wake the chip.
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     
     esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_DURATION_SEC * uS_TO_S_FACTOR);
 
     Serial.flush();
-    // Increasing delay to 3 seconds. Some host serial drivers toggle RTS/DTR 
-    // when they lose the USB-CDC link, causing the C6 to wake up immediately.
-    delay(3000); 
+    delay(100); // Minimal delay for serial buffer only
     esp_deep_sleep_start();
     
+    // If we reach here, sleep failed
     Serial.println("FATAL: Deep sleep failed to start!");
     while(1) { delay(1000); }
 }
