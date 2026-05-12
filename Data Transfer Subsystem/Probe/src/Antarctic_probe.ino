@@ -24,6 +24,7 @@ RTC_DATA_ATTR uint32_t session_start_time = 0; // ms
 
 void handle_offload() {
     #if DEBUG_MODE
+    Serial.println("[HITL] WAKEUP CAUSE: GPIO 1 (Magnetic Switch Simulated)!");
     Serial.println("[HITL] STATE -> OFFLOAD: Retrieving records from F-RAM...");
     #endif
     
@@ -33,7 +34,6 @@ void handle_offload() {
         if (count > 0) {
             ESPNowStatus_t status = ESPNOW_Init();
             if (status == ESPNOW_OK) {
-                // Use a dynamic or constant date
                 uint32_t current_date = 20260512; 
                 ESPNOW_StartTransfer(records, count, session_start_time, current_date);
                 ESPNOW_Deinit();
@@ -54,30 +54,18 @@ void handle_offload() {
 void setup() {
     Serial.begin(115200);
     
-    // Wait for Serial to initialize
-    uint32_t start_wait = millis();
-    while (!Serial && (millis() - start_wait < 4000));
-    delay(500); 
-    
-    Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
-    
+    // Determine reason BEFORE printing anything
     esp_reset_reason_t reset_reason = esp_reset_reason();
     esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
-    Serial.printf("Diagnostics -> Reset Reason: %d, Wakeup Cause: %d\n", (int)reset_reason, (int)wakeup_cause);
-
-    fram_init();
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
 
     bool trigger_offload = false;
+    bool is_cycle = (wakeup_cause == ESP_SLEEP_WAKEUP_TIMER || (reset_reason == ESP_RST_DEEPSLEEP && wakeup_cause == ESP_SLEEP_WAKEUP_UNDEFINED));
+    bool is_initial = (reset_reason != ESP_RST_DEEPSLEEP);
 
-    // Check if we woke up from the button
-    if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1 || wakeup_cause == ESP_SLEEP_WAKEUP_GPIO) {
-        trigger_offload = true;
-    } 
-    // Check if it's a cycle wakeup (Timer or Spurious Cause 0)
-    else if (wakeup_cause == ESP_SLEEP_WAKEUP_TIMER || (reset_reason == ESP_RST_DEEPSLEEP && wakeup_cause == ESP_SLEEP_WAKEUP_UNDEFINED)) {
-        #if DEBUG_MODE
-        Serial.printf("[HITL] Cycle interval delay (%ds). Press button to offload...\n", SLEEP_DURATION_SEC);
+    // --- HITL PoC LOGIC: Silent Interval for Cycle Wakeups ---
+    if (is_cycle) {
+        // We stay silent for 5 seconds to simulate deep sleep duration
         uint32_t wait_start = millis();
         while (millis() - wait_start < (SLEEP_DURATION_SEC * 1000)) {
             if (digitalRead(REED_SWITCH_PIN) == LOW) {
@@ -86,10 +74,26 @@ void setup() {
             }
             delay(10);
         }
-        #endif
+    } else if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1 || wakeup_cause == ESP_SLEEP_WAKEUP_GPIO) {
+        trigger_offload = true;
+    }
 
-        if (!trigger_offload) {
-            // --- STATE: WAKE_AND_LOG ---
+    // Now that the interval is over (or button was pressed), start printing
+    uint32_t start_wait = millis();
+    while (!Serial && (millis() - start_wait < 1000)); // Shorter wait for reconnection
+    
+    Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
+    Serial.printf("Diagnostics -> Reset Reason: %d, Wakeup Cause: %d\n", (int)reset_reason, (int)wakeup_cause);
+    fram_init();
+
+    if (trigger_offload) {
+        handle_offload();
+    } else if (is_cycle || is_initial) {
+        if (is_initial) {
+            Serial.println("System Start: (Initial Power-On).");
+            if (session_start_time == 0) session_start_time = millis();
+        } else {
+            // Cycle wakeup
             #if DEBUG_MODE
             Serial.println("[HITL] Waking up (Timer/Cycle)...");
             #endif
@@ -104,14 +108,6 @@ void setup() {
             fram_write_record(dummy_data);
             record_counter++;
         }
-    } else {
-        // INITIAL BOOT
-        Serial.println("System Start: (Initial Power-On).");
-        if (session_start_time == 0) session_start_time = millis();
-    }
-
-    if (trigger_offload) {
-        handle_offload();
     }
 
     // --- STATE: DEEP_SLEEP ---
