@@ -18,9 +18,9 @@
 #define REED_SWITCH_PIN GPIO_NUM_1  // D6 on FireBeetle 2 C6
 #define uS_TO_S_FACTOR 1000000ULL
 
-// Simulated State Persistence
+// Simulated State Persistence (survives deep sleep/warm reset)
 RTC_DATA_ATTR int record_counter = 1;
-RTC_DATA_ATTR uint32_t session_start_time = 0; // ms
+RTC_DATA_ATTR uint32_t session_start_time = 0; 
 
 void handle_offload() {
     #if DEBUG_MODE
@@ -38,10 +38,10 @@ void handle_offload() {
                 ESPNOW_StartTransfer(records, count, session_start_time, current_date);
                 ESPNOW_Deinit();
             } else {
-                Serial.printf("ESP-NOW Init failed: %d\n", status);
+                Serial.printf("[ESPNOW] Init failed: %d\n", status);
             }
         } else {
-            Serial.println("No records found in F-RAM memory.");
+            Serial.println("[OFFLOAD] No records found in F-RAM memory.");
         }
         free(records);
     }
@@ -60,12 +60,13 @@ void setup() {
     pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
 
     bool trigger_offload = false;
-    bool is_cycle = (wakeup_cause == ESP_SLEEP_WAKEUP_TIMER || (reset_reason == ESP_RST_DEEPSLEEP && wakeup_cause == ESP_SLEEP_WAKEUP_UNDEFINED));
+    // A 'Cycle' is a deep sleep wakeup that isn't the button
+    bool is_cycle = (reset_reason == ESP_RST_DEEPSLEEP && wakeup_cause != ESP_SLEEP_WAKEUP_EXT1 && wakeup_cause != ESP_SLEEP_WAKEUP_GPIO);
+    // An 'Initial' boot is anything that isn't a deep sleep wakeup
     bool is_initial = (reset_reason != ESP_RST_DEEPSLEEP);
 
     // --- HITL PoC LOGIC: Silent Interval for Cycle Wakeups ---
     if (is_cycle) {
-        // We stay silent for 5 seconds to simulate deep sleep duration
         uint32_t wait_start = millis();
         while (millis() - wait_start < (SLEEP_DURATION_SEC * 1000)) {
             if (digitalRead(REED_SWITCH_PIN) == LOW) {
@@ -78,36 +79,40 @@ void setup() {
         trigger_offload = true;
     }
 
-    // Now that the interval is over (or button was pressed), start printing
+    // After interval/trigger, initialize serial output
     uint32_t start_wait = millis();
-    while (!Serial && (millis() - start_wait < 1000)); // Shorter wait for reconnection
+    while (!Serial && (millis() - start_wait < 1000));
     
     Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
     Serial.printf("Diagnostics -> Reset Reason: %d, Wakeup Cause: %d\n", (int)reset_reason, (int)wakeup_cause);
+    
     fram_init();
+
+    if (is_initial) {
+        // CLEAN RESET: If we reach here via a hard reset or power-on
+        Serial.println("System Start: (Initial Power-On / Manual Reset).");
+        fram_clear();
+        record_counter = 1;
+        session_start_time = millis();
+    }
 
     if (trigger_offload) {
         handle_offload();
     } else if (is_cycle || is_initial) {
-        if (is_initial) {
-            Serial.println("System Start: (Initial Power-On).");
-            if (session_start_time == 0) session_start_time = millis();
-        } else {
-            // Cycle wakeup
-            #if DEBUG_MODE
-            Serial.println("[HITL] Waking up (Timer/Cycle)...");
-            #endif
-            
-            uint32_t current_time_ms = (record_counter - 1) * SLEEP_DURATION_SEC * 1000;
-            String dummy_data = String(record_counter) + "," + String(current_time_ms) + ",1400.0,2200.0,100.0,105.0,90.0,110.0,95.0,100.0,120.0,80.0,90.0,110.0,105.0";
-            
-            #if DEBUG_MODE
-            Serial.println("[HITL] Saving to F-RAM: " + dummy_data);
-            #endif
-            
-            fram_write_record(dummy_data);
-            record_counter++;
-        }
+        // --- STATE: WAKE_AND_LOG ---
+        #if DEBUG_MODE
+        Serial.println("[HITL] Waking up (Timer/Cycle)...");
+        #endif
+        
+        uint32_t current_time_ms = (record_counter - 1) * SLEEP_DURATION_SEC * 1000;
+        String dummy_data = String(record_counter) + "," + String(current_time_ms) + ",1400.0,2200.0,100.0,105.0,90.0,110.0,95.0,100.0,120.0,80.0,90.0,110.0,105.0";
+        
+        #if DEBUG_MODE
+        Serial.println("[HITL] Saving to F-RAM: " + dummy_data);
+        #endif
+        
+        fram_write_record(dummy_data);
+        record_counter++;
     }
 
     // --- STATE: DEEP_SLEEP ---
