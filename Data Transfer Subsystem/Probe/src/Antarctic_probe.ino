@@ -63,6 +63,25 @@ void handle_offload() {
     Serial.println("[HITL] Offload complete. Returning to STATE 0 (STANDBY).");
 }
 
+/**
+ * Generates a dummy sensor reading and saves it to the simulated F-RAM.
+ */
+void log_sensor_data() {
+    #if DEBUG_MODE
+    Serial.println("[HITL] Waking up (Timer/Cycle)...");
+    #endif
+    
+    uint32_t current_time_ms = (record_counter - 1) * LOGGING_INTERVAL_SEC * 1000;
+    String dummy_data = String(record_counter) + "," + String(current_time_ms) + ",1400.0,2200.0,100.0,105.0,90.0,110.0,95.0,100.0,120.0,80.0,90.0,110.0,105.0";
+    
+    #if DEBUG_MODE
+    Serial.println("[HITL] Saving to F-RAM: " + dummy_data);
+    #endif
+    
+    fram_write_record(dummy_data);
+    record_counter++;
+}
+
 void setup() {
     // 1. Immediate hardware state evaluation
     esp_reset_reason_t reset_reason = esp_reset_reason();
@@ -113,19 +132,17 @@ void setup() {
             }
         } 
         else if (mission_state == STATE_ARMED) {
-            // Sinking delay simulation (HITL: 15s)
             Serial.printf("[HITL] STATE 1 (ARMED): Sinking interval delay (%ds)...\n", SINKING_DELAY_SEC);
             delay(SINKING_DELAY_SEC * 1000);
             Serial.println("[HITL] STATE 1 -> 2: Sinking delay complete. Starting LOGGING.");
             mission_state = STATE_LOGGING;
-            // Immediate first log
-            goto log_record;
+            log_sensor_data();
         } 
         else if (mission_state == STATE_LOGGING) {
             if (is_button_wakeup) {
                 handle_offload();
+                goto sleep_transition;
             } else {
-                // Regular logging cycle wait (HITL: 5s)
                 Serial.printf("[HITL] STATE 2 (LOGGING): Interval delay (%ds). Press D6 to offload.\n", LOGGING_INTERVAL_SEC);
                 uint32_t wait_start = millis();
                 while (millis() - wait_start < (LOGGING_INTERVAL_SEC * 1000)) {
@@ -135,14 +152,7 @@ void setup() {
                     }
                     delay(10);
                 }
-
-                log_record:
-                Serial.println("[HITL] Waking up (Timer/Cycle)...");
-                uint32_t current_time_ms = (record_counter - 1) * LOGGING_INTERVAL_SEC * 1000;
-                String dummy_data = String(record_counter) + "," + String(current_time_ms) + ",1400.0,2200.0,100.0,105.0,90.0,110.0,95.0,100.0,120.0,80.0,90.0,110.0,105.0";
-                Serial.println("[HITL] Saving to F-RAM: " + dummy_data);
-                fram_write_record(dummy_data);
-                record_counter++;
+                log_sensor_data();
             }
         }
     }
