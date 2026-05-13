@@ -672,10 +672,14 @@ class ProbeApp(ctk.CTk):
         if self._connected:
             self._set_connected(False, battery=None)
             self._battery_pct = None
-            self._log("Disconnected from probe.")
+
+            # Send CMD to disconnect and de-init ESP NOW
+            disconnect = bk.disconnect_probe()
+            if (disconnect):
+                self._log("Disconnected from probe.")
             return
 
-        self._log("Connecting to probe dongle...")
+        self._log("Connecting to probe ...")
         self._set_busy(True)
 
 
@@ -690,7 +694,7 @@ class ProbeApp(ctk.CTk):
             self._set_connected(True, battery=battery)
             self._log(f"Connected. Probe battery: {battery}%")
 
-        bk.run_async(bk.mock_get_status(), _done)
+        bk.run_async(bk.connect_probe(), _done)
 
 
 
@@ -718,6 +722,23 @@ class ProbeApp(ctk.CTk):
             lambda: bk.sync_probe(log_callback=_log_cb, on_record=self._handle_live_record),
             _done
         )
+
+
+    def _on_prepare_dive(self):
+        if self._busy or not self._connected:
+            return
+        
+        if not self._connected:
+            self._log("Failed to send PREPARE DIVE — probe not connected.")
+        
+        now = datetime.now()
+        ok = bk.send_prepare_dive(now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"))
+        self._log(f"PREPARE DIVE sent — {now.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        if ok:
+            self._log("PREPARE DIVE acknowledged by probe. Ready to disconnect and dive.")
+        else:
+            self._log("Failed to acknowledge PREPARE DIVE — probe did not respond.")
 
 
     def _on_simulate_data(self):
