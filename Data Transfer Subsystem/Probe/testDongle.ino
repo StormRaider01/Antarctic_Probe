@@ -58,9 +58,16 @@ void cmd_Connect() {
             lastAttemptTime = currentMillis;
 
             Serial.println("Attempting to connect to probe...");
-            const char* msg = "CMD:CONNECT";
+            static const char* msg = "[CMD]:CONNECT"; 
+    
+            // strlen(msg) is used for char arrays instead of .length()
+            esp_err_t result = esp_now_send(PROBE_MAC, (uint8_t*) msg, strlen(msg));
 
-            esp_now_send(PROBE_MAC, (uint8_t*) msg, strlen(msg));
+            if (result == ESP_OK) {
+                Serial.println("Command Connect forwarded.");
+            } else {
+                Serial.println("Send failed!");
+            }
         }
 
         if (Serial.available() > 0) {
@@ -68,7 +75,7 @@ void cmd_Connect() {
             // Read incoming line
             String incoming = Serial.readStringUntil('\n');
             incoming.trim();        // removes \r if it was on string
-            if (incoming.startsWith("ACK:CONNECT")) {
+            if (incoming.startsWith("[ACK]:CONNECT")) {
                 s_state = STATE_CONNECTED;
                 return;
             }
@@ -78,26 +85,64 @@ void cmd_Connect() {
 
 
 // ===========================================================================
-void cmd_Prepare() {
-    String msg = "ACK:PREPARE";
-    esp_now_send(PROBE_MAC, (uint8_t*) msg.c_str(), msg.length());
-    Serial.println("Command Prepare forwarded.");
+void cmd_Prepare(String command) {
+    // format: PREPARE, 2026-05-13, 12:15:00
+    // Indexing check: 
+    // P R E P A R E , _ <date>
+    // 0 1 2 3 4 5 6 7 8 9...
+    
+    if (command.length() < 29) {
+        Serial.println("Error: Command string too short!");
+        return;
+    }
+
+    String date = command.substring(9, 19);
+    String time = command.substring(21, 29);
+    String msg = "[CMD]:PREPARE," + date + "," + time;
+
+    // Create a static or temporary buffer to hold the data
+    // ESP-NOW payload limit is 250 bytes
+    uint8_t buffer[msg.length() + 1]; 
+    memcpy(buffer, msg.c_str(), msg.length());
+
+    esp_err_t result = esp_now_send(PROBE_MAC, buffer, msg.length());
+
+    if (result == ESP_OK) {
+        Serial.println("Command Prepare forwarded successfully.");
+    } else {
+        Serial.print("Error sending ESP-NOW: ");
+        Serial.println(result);
+    }
 }
 
 
 // ===========================================================================
 void cmd_Retrieve() {
-    String msg = "ACK:RETRIEVE";
-    esp_now_send(PROBE_MAC, (uint8_t*) msg.c_str(), msg.length());
-    Serial.println("Command Retrieve forwarded.");
+    static const char* msg = "[CMD]:RETRIEVE"; 
+    
+    // strlen(msg) is used for char arrays instead of .length()
+    esp_err_t result = esp_now_send(PROBE_MAC, (uint8_t*) msg, strlen(msg));
+
+    if (result == ESP_OK) {
+        Serial.println("Command Retrieve forwarded.");
+    } else {
+        Serial.println("Send failed!");
+    }
 }
 
 
 // ===========================================================================
 void cmd_Disconnect() {
-    String msg = "ACK:DISCONNECT";
-    esp_now_send(PROBE_MAC, (uint8_t*) msg.c_str(), msg.length());
-    Serial.println("Command Disconnect forwarded.");
+    static const char* msg = "[CMD]:DISCONNECT"; 
+    
+    // strlen(msg) is used for char arrays instead of .length()
+    esp_err_t result = esp_now_send(PROBE_MAC, (uint8_t*) msg, strlen(msg));
+
+    if (result == ESP_OK) {
+        Serial.println("Command Disconnect forwarded.");
+    } else {
+        Serial.println("Send failed!");
+    }
 }
 
 
@@ -154,21 +199,21 @@ void loop() {
         incoming.trim();        // removes \r if it was on string
 
         // Filter for CMD
-        // C=0 M=1 D=2 :=3 so the command is everything from 4 onwards
-        if (incoming.startsWith("CMD:")) {
-            String cmd = incoming.substring(4);
+        // [=0 C1 M=2 D=3 ]=4 :=5 so the command is everything from 6 onwards
+        if (incoming.startsWith("[CMD]:")) {
+            String cmd = incoming.substring(6);
 
             // Decode command
             if (cmd == "STOPHEARTBEAT") {
                 cmd_StopHeartBeat();
             } else if (cmd == "COMMAND") {
                 cmd_Connect();
-            } else if (cmd == "PREPARE") {
-                cmd_Prepare();
             } else if (cmd == "RETRIEVE") {
                 cmd_Retrieve();
             } else if (cmd == "DISCONNECT") {
                 cmd_Disconnect();
+            } else {
+                cmd_Prepare(cmd);      // only other command there is
             }
         }
     }
