@@ -16,6 +16,7 @@ static uint8_t DongleAddress[6] = {0x9C, 0x13, 0x9E, 0xCC, 0x35, 0x50};     // K
 esp_now_peer_info_t peerInfo;
 String globalDate = "";
 String globalTime = "";
+bool connected = false;
 
 
 // ===========================================================================
@@ -27,15 +28,27 @@ void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
 void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
     String incoming = "";
     for (int i = 0; i < len; i++) incoming += (char)data[i];
-    Serial.print("[RECV] ");
-    Serial.println(incoming);
+
+    String cmd = incoming;
+
+    if (cmd == "[CMD]:CONNECT") {
+        cmd_Connect();          
+    } else if (cmd == "[CMD]:RETRIEVE") {
+        cmd_Retrieve();
+    } else if (cmd == "[CMD]:DISCONNECT") {
+        cmd_Disconnect();
+    } else {         // PREPARE only other command there is
+        cmd_Prepare(cmd);
+    }
 }
 
 
 // ===========================================================================
 void cmd_Connect() {
     static const char* msg = "[ACK]:CONNECT"; 
-    
+
+    connected = true;
+
     // strlen(msg) is used for char arrays instead of .length()
     esp_err_t result = esp_now_send(DongleAddress, (uint8_t*) msg, strlen(msg));
 
@@ -49,6 +62,8 @@ void cmd_Connect() {
 
 // ===========================================================================
 void cmd_Disconnect() {
+    connected = false;
+
     esp_err_t result = esp_now_deinit();
     WiFi.mode(WIFI_OFF);           
 
@@ -64,16 +79,17 @@ void cmd_Disconnect() {
 
 // ===========================================================================
 void cmd_Prepare(String command) {
-    // Expected format: "PREPARE, 2026-05-13, 12:15:00"
-    // Indices:         01234567890123456789012345678
-    //                            ^         ^
-    //                         Index 9    Index 21
+    // format: [CMD]:PREPARE, 2026-05-13, 12:15:00
+    // Indexing check: 
+    // [ C M D ] : P R E P A R E , 2 0 2 6 - 0 5 - 1 3 , 1 2 : 1 5 : 0 0
+    // 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2
+    //                     10                  20                  30
 
     if (command.length() >= 29) {
         // Extract into global variables
         // .substring(start, end) - end is exclusive
-        globalDate = command.substring(9, 19);  // "2026-05-13"
-        globalTime = command.substring(21, 29); // "12:15:00"
+        globalDate = command.substring(14, 24);  // "2026-05-13"
+        globalTime = command.substring(25); // "12:15:00"
 
         Serial.println("Data Stored Globally:");
         Serial.println("Date: " + globalDate);
@@ -136,27 +152,19 @@ void setup() {
 
     Serial.println("==========================");  
     Serial.println("Ready to receive commands.");
+
+    // For visual confirmation
+    pinMode(15, OUTPUT);
 }
 
 
-// ===========================================================================
 void loop() {
-    if (Serial.available() > 0) {
-        String incoming = Serial.readStringUntil('\n');
-        incoming.trim();
-
-        if (incoming.startsWith("[CMD]:")) {
-            String cmd = incoming.substring(6);
-
-            if (cmd == "CONNECT") {
-                cmd_Connect();          
-            } else if (cmd == "RETRIEVE") {
-                cmd_Retrieve();
-            } else if (cmd == "DISCONNECT") {
-                cmd_Disconnect();
-            } else          // PREPARE only other command there is
-                cmd_Prepare(cmd);
-            }
-        }
+    if (connected) {
+        digitalWrite(15, HIGH);
+    } else {
+        digitalWrite(15, LOW);
     }
+
+    
 }
+

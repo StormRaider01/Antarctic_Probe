@@ -41,8 +41,17 @@ class ProbeRecord:
     ms_since_start:   int
     temperature_c:    float
     pressure_dbar:    float
-    excitation_raw:   float
-    fluorescence_raw: float
+    spec1:            float
+    spec2:            float
+    spec3:            float
+    spec4:            float
+    spec5:            float
+    spec6:            float  # Excitation
+    spec7:            float  # Fluorescence
+    spec8:            float
+    spec9:            float
+    spec10:           float
+    spec11:           float
     is_anomaly:       bool = False
 
 
@@ -60,8 +69,17 @@ def _parse_data_line(line: str) -> ProbeRecord | None:
             ms_since_start   = int(parts[1]),
             temperature_c    = float(parts[2]),
             pressure_dbar    = float(parts[3]),
-            excitation_raw   = float(parts[9]),  # spec6 (0-indexed 5, but after 4 fields it's 4+5=9)
-            fluorescence_raw = float(parts[10]), # spec7 (4+6=10)
+            spec1            = float(parts[4]),
+            spec2            = float(parts[5]),
+            spec3            = float(parts[6]),
+            spec4            = float(parts[7]),
+            spec5            = float(parts[8]),
+            spec6            = float(parts[9]),
+            spec7            = float(parts[10]),
+            spec8            = float(parts[11]),
+            spec9            = float(parts[12]),
+            spec10           = float(parts[13]),
+            spec11           = float(parts[14]),
         )
     except (ValueError, IndexError):
         return None
@@ -77,8 +95,7 @@ def wait_for_string(ser, targetString, timeout=10):
     # Set a short timeout on the serial port itself if not already set
     # ser.timeout = 0.1 
 
-    #while (time.time() - start_time) < timeout:
-    for _ in range(5):
+    while (time.time() - start_time) < timeout:
         if ser.in_waiting > 0:
             # Read and clean the line
             line_raw = ser.readline()
@@ -98,9 +115,9 @@ def wait_for_string(ser, targetString, timeout=10):
                         parts = line.split(":")
                         battery_pct = int(parts[-1].strip())
 
-                        # After — handles "[ACK]:CONNECT,BATT:70%"
-                        batt_str = line.split("BATT:")[1].split(",")[0].replace("%", "").strip()
-                        battery_pct = int(batt_str)
+                        # After — handles "[ACK]:CONNECT,BATT:70"
+                        # batt_str = line.split("BATT:")[1].split(",")[0].strip()
+                        # battery_pct = int(batt_str)
                     except ValueError:
                         pass
 
@@ -171,7 +188,7 @@ def connect_probe():# -> dict | None:
     Send CMD:CONNECT to tell the dongle to initialise ESP-NOW and register
     the probe as a peer. Blocks until the dongle confirms or times out.
  
-    Returns {"probe_connected": True} on success, None on failure.
+    Returns {"probe_connected": is_probe_connected, "battery_pct": battery_pct} on success, None on failure.
     Run via run_in_thread() so the GUI doesn't freeze.
     """
     global is_probe_connected
@@ -195,7 +212,8 @@ def disconnect_probe() -> None:
     # Send command
     _ser.write(b"[CMD]:DISCONNECT")
 
-    is_probe_connected = not wait_for_string(_ser, targetString="[ACK]:DISCONNECT")  # if ack then is_probe_connect = False
+    # is_probe_connected = not wait_for_string(_ser, targetString="[ACK]:DISCONNECT")
+    is_probe_connected = False
 
     return not is_probe_connected   # if is_probe_connected = False then return True
 
@@ -278,8 +296,17 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
                         "timestamp_ms": rec.ms_since_start,
                         "temperature":  rec.temperature_c,
                         "pressure":     rec.pressure_dbar,
-                        "excitation":   rec.excitation_raw,
-                        "fluorescence": rec.fluorescence_raw,
+                        "spec1":        rec.spec1,
+                        "spec2":        rec.spec2,
+                        "spec3":        rec.spec3,
+                        "spec4":        rec.spec4,
+                        "spec5":        rec.spec5,
+                        "spec6":        rec.spec6,
+                        "spec7":        rec.spec7,
+                        "spec8":        rec.spec8,
+                        "spec9":        rec.spec9,
+                        "spec10":       rec.spec10,
+                        "spec11":       rec.spec11,
                         "is_anomaly":   rec.is_anomaly
                     }
                     
@@ -392,8 +419,17 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
                     "timestamp_ms": rec.ms_since_start,
                     "temperature":  rec.temperature_c,
                     "pressure":     rec.pressure_dbar,
-                    "excitation":   rec.excitation_raw,
-                    "fluorescence": rec.fluorescence_raw,
+                    "spec1":        rec.spec1,
+                    "spec2":        rec.spec2,
+                    "spec3":        rec.spec3,
+                    "spec4":        rec.spec4,
+                    "spec5":        rec.spec5,
+                    "spec6":        rec.spec6,
+                    "spec7":        rec.spec7,
+                    "spec8":        rec.spec8,
+                    "spec9":        rec.spec9,
+                    "spec10":       rec.spec10,
+                    "spec11":       rec.spec11,
                     "is_anomaly":   rec.is_anomaly
                 }
                 

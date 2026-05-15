@@ -409,7 +409,7 @@ class ProbeApp(ctk.CTk):
 
         # drop down options for y-axis selector
         # Graph will automiatically update when selection changes
-        y_options = ["temperature", "pressure", "excitation", "fluorescence"]
+        y_options = ["temperature", "pressure"] + [f"spec{i}" for i in range(1, 12)]
         self._y_menu = ctk.CTkOptionMenu(
             ctrl, variable=self._graph_y_var, values=y_options,
             command=lambda _: self._refresh_graph(),
@@ -530,9 +530,12 @@ class ProbeApp(ctk.CTk):
         y_labels = {
             "temperature":  "Temperature (°C)",
             "pressure":     "Pressure (dbar)",
-            "excitation":   "Excitation (raw ADC)",
-            "fluorescence": "Fluorescence (raw ADC)",
         }
+        for i in range(1, 12):
+            label = f"Spectrometer Ch{i}"
+            if i == 6: label += " (Excitation)"
+            if i == 7: label += " (Fluorescence)"
+            y_labels[f"spec{i}"] = label
 
         if self._graph_mode.get() == "all":
             records = self._records
@@ -549,8 +552,13 @@ class ProbeApp(ctk.CTk):
             # Displays constants of whatever is not displayed on y-axis
             if records:
                 r = records[0]
-                const_keys = [k for k in ["temperature", "pressure", "excitation", "fluorescence"] if k != y_key]
-                parts = [f"{k.capitalize()}: {r[k]:.2f}" for k in const_keys if k in r]
+                # Display first 4 mission-critical constants that aren't the Y-axis
+                base_keys = ["temperature", "pressure", "spec6", "spec7"]
+                const_keys = [k for k in base_keys if k != y_key]
+                parts = []
+                for k in const_keys:
+                    label = k.replace("spec6", "Excitation").replace("spec7", "Fluorescence").capitalize()
+                    parts.append(f"{label}: {r[k]:.2f}")
                 self._const_label.configure(text="   |   ".join(parts))
 
 
@@ -602,8 +610,9 @@ class ProbeApp(ctk.CTk):
     # Writes the header line for the raw data tab
     def _write_data_header(self):
         header = (
-            f"{'SEQ':>5}  {'TIME (ms)':>12}  {'TEMP (°C)':>10}  "
-            f"{'PRESSURE':>10}  {'EXCITATION':>12}  {'FLUORESCENCE':>14}\n"
+            f"{'SEQ':>4} {'TIME(ms)':>9} {'TEMP':>7} {'PRES':>7} "
+            f"{'S1':>6} {'S2':>6} {'S3':>6} {'S4':>6} {'S5':>6} "
+            f"{'S6(Ex)':>7} {'S7(Fl)':>7} {'S8':>6} {'S9':>6} {'S10':>6} {'S11':>6}\n"
         )
         divider = "─" * (len(header) - 1) + "\n"
         self._data_append(header + divider)
@@ -639,9 +648,11 @@ class ProbeApp(ctk.CTk):
         for r in records:
             anomaly_flag = "  [ANOMALY]" if r.get('is_anomaly') else ""
             line = (
-                f"{r['sequence']:>5}  {r['timestamp_ms']:>12}  "
-                f"{r['temperature']:>10.2f}  {r['pressure']:>10.2f}  "
-                f"{r['excitation']:>12.3f}  {r['fluorescence']:>14.3f}{anomaly_flag}\n"
+                f"{r['sequence']:>4} {r['timestamp_ms']:>9} "
+                f"{r['temperature']:>7.1f} {r['pressure']:>7.1f} "
+                f"{r['spec1']:>6.0f} {r['spec2']:>6.0f} {r['spec3']:>6.0f} {r['spec4']:>6.0f} "
+                f"{r['spec5']:>6.0f} {r['spec6']:>7.0f} {r['spec7']:>7.0f} {r['spec8']:>6.0f} "
+                f"{r['spec9']:>6.0f} {r['spec10']:>6.0f} {r['spec11']:>6.0f}{anomaly_flag}\n"
             )
             self._data_append(line)
         self._refresh_graph()

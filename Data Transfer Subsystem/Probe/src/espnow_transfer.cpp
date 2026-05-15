@@ -26,7 +26,8 @@
 // ===========================================================================
 // Receiver MAC address
 // ** CHANGE THIS to the actual MAC of the receiver dongle before deploying **
-static const uint8_t RECEIVER_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+// Updated to Kiyuran's board as per TestProbe.ino
+static const uint8_t RECEIVER_MAC[6] = {0x9C, 0x13, 0x9E, 0xCC, 0x35, 0x50};
 
 // ===========================================================================
 
@@ -42,6 +43,10 @@ static volatile bool   s_send_success  = false;  // set by send callback
 static volatile bool   s_send_done     = false;  // send callback has fired
 static volatile bool   s_ack_received  = false;  // set by receive callback
 static volatile uint32_t s_acked_entry = 0;       // which entry was ACKed
+
+static char s_last_cmd[64] = {0};
+static volatile bool s_cmd_available = false;
+static bool s_is_init = false;
 
 // =============================================================================
 
@@ -64,14 +69,21 @@ static void on_send(const wifi_tx_info_t* info, esp_now_send_status_t status) {
  */
 static void on_receive(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
 
-    if (len < (int)sizeof(ReceiverAck_t)) return;
-
-    const ReceiverAck_t* ack = (const ReceiverAck_t*)data;
-    if (ack->pkt_type == PKT_TYPE_ACK) {
-        s_acked_entry = ack->entry_num;
-        s_ack_received = true;
+    // 1. Check if it's a structural ACK
+    if (len == sizeof(ReceiverAck_t)) {
+        const ReceiverAck_t* ack = (const ReceiverAck_t*)data;
+        if (ack->pkt_type == PKT_TYPE_ACK) {
+            s_acked_entry = ack->entry_num;
+            s_ack_received = true;
+            return;
+        }
     }
-    // NACK handling: s_ack_received stays false, caller will retry
+
+    // 2. Otherwise treat it as a String command (like [CMD]:CONNECT)
+    int copy_len = (len < 63) ? len : 63;
+    memcpy(s_last_cmd, data, copy_len);
+    s_last_cmd[copy_len] = '\0';
+    s_cmd_available = true;
 }
 
 // =============================================================================
@@ -156,16 +168,43 @@ ESPNowStatus_t ESPNOW_Init(void) {
         return ESPNOW_ERR_PEER;
     }
 
+    s_is_init = true;
     Serial.println("[ESPNOW] Initialised. Receiver peer registered.");
     return ESPNOW_OK;
+}
+
+bool ESPNOW_IsInitialised(void) {
+    return s_is_init;
 }
 
 // GUI will send marker to indicate end of transfer
 int ESPNOW_Deinit(void) {
     esp_now_deinit();
     WiFi.mode(WIFI_OFF);
+    s_is_init = false;
     Serial.println("[ESPNOW] Deinitialised. WiFi radio off.");
     return ESPNOW_OK;       // for overhead to know radio off before entering deep sleep
+}
+
+ESPNowStatus_t ESPNOW_SendString(const char* msg) {
+    if (!send_raw(msg, strlen(msg))) {
+        return ESPNOW_ERR_SEND;
+    }
+    return ESPNOW_OK;
+}
+
+bool ESPNOW_GetCommand(char* buf, int max_len) {
+    if (!s_cmd_available) return false;
+    
+    strncpy(buf, s_last_cmd, max_len);
+    buf[max_len - 1] = '\0';
+    s_cmd_available = false; // consume it
+    return true;
+}
+
+void ESPNOW_ClearCommand(void) {
+    s_cmd_available = false;
+    memset(s_last_cmd, 0, sizeof(s_last_cmd));
 }
 
 ESPNowStatus_t ESPNOW_StartTransfer(const ProbeRecord_t* records, uint32_t count, 
