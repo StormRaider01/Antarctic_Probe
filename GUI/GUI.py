@@ -874,12 +874,16 @@ class ProbeApp(ctk.CTk):
             return
         try:
             with open(path, mode="w", newline="") as f:
-                fieldnames = ["sequence", "timestamp_ms", "temperature",
-                              "pressure", "excitation", "fluorescence"]
+                fieldnames = [
+                    "sequence", "timestamp_ms", "temperature", "pressure",
+                    "spec1", "spec2", "spec3", "spec4", "spec5",
+                    "spec6", "spec7", "spec8", "spec9", "spec10", "spec11",
+                    "is_anomaly",
+                ]
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 for r in self._records:
-                    writer.writerow({k: r[k] for k in fieldnames})
+                    writer.writerow({k: r.get(k, "") for k in fieldnames})
             self._log(f"Saved {len(self._records)} records → {Path(path).name}")
         except Exception as e:
             self._log(f"Save failed: {e}")
@@ -906,8 +910,18 @@ class ProbeApp(ctk.CTk):
                         "timestamp_ms": int(row.get("timestamp_ms", 0)),
                         "temperature":  float(row.get("temperature", 0)),
                         "pressure":     float(row.get("pressure", 0)),
-                        "excitation":   float(row.get("excitation", 0)),
-                        "fluorescence": float(row.get("fluorescence", 0)),
+                        "spec1":        float(row.get("spec1", 0)),
+                        "spec2":        float(row.get("spec2", 0)),
+                        "spec3":        float(row.get("spec3", 0)),
+                        "spec4":        float(row.get("spec4", 0)),
+                        "spec5":        float(row.get("spec5", 0)),
+                        "spec6":        float(row.get("spec6", 0)),
+                        "spec7":        float(row.get("spec7", 0)),
+                        "spec8":        float(row.get("spec8", 0)),
+                        "spec9":        float(row.get("spec9", 0)),
+                        "spec10":       float(row.get("spec10", 0)),
+                        "spec11":       float(row.get("spec11", 0)),
+                        "is_anomaly":   row.get("is_anomaly", "False") == "True",
                     })
             self._records.extend(records)
             self._display_records(records)

@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <esp_now.h> 
+#include <esp_now.h>
+#include "data_packet.h"
 
 // ===========================================================================
 // Probe MAC — set this to the probe ESP32's MAC address
@@ -37,21 +38,87 @@ void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
 
 
 // ===========================================================================
+// Helper: send ACK or NACK back to probe via ESP-NOW
+static void send_ack(uint8_t pkt_type, uint32_t entry_num) {
+    ReceiverAck_t ack;
+    ack.pkt_type  = pkt_type;
+    ack.entry_num = entry_num;
+    esp_now_send(PROBE_MAC, (uint8_t*)&ack, sizeof(ack));
+}
+
+
+// ===========================================================================
 void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
-    String incoming = "";
-    for (int i = 0; i < len; i++) incoming += (char)data[i];
+    if (len < 1) return;
 
-    char buf[len + 1];
-    memcpy(buf, data, len);
-    buf[len] = '\0';
-    Serial.println(buf);
+    uint8_t pkt_type = data[0];
 
-    // Print
-    Serial.println(incoming);
-    
-    // Check for [ACK]
-    if (incoming == "[ACK]:CONNECT") {
-        s_state = STATE_CONNECTED;
+    // ── Binary packet types (0xA0–0xAE) ───────────────────────────────────
+    if (pkt_type == PKT_TYPE_HEADER) {
+        if (len < (int)sizeof(SessionHeader_t)) {
+            Serial.println("[ERROR] Session header truncated");
+            return;
+        }
+        SessionHeader_t hdr;
+        memcpy(&hdr, data, sizeof(SessionHeader_t));
+        Serial.print("[SESSION] HEADER records=");
+        Serial.print(hdr.record_count);
+        Serial.print(" date=");
+        Serial.println(hdr.session_date);
+    }
+    else if (pkt_type == PKT_TYPE_RECORD) {
+        if (len < (int)sizeof(ProbeRecord_t)) {
+            Serial.println("[ERROR] Record packet truncated");
+            return;
+        }
+        ProbeRecord_t rec;
+        memcpy(&rec, data, sizeof(ProbeRecord_t));
+
+        uint8_t computed = xor_checksum((const uint8_t*)&rec, sizeof(rec) - 1);
+
+        if (computed == rec.checksum) {
+            send_ack(PKT_TYPE_ACK, rec.entry_num);
+
+            // Format for Backend.py _parse_data_line()
+            // DATA:entry,ms,temp,pressure,spec1..spec11
+            Serial.print("DATA:");
+            Serial.print(rec.entry_num);      Serial.print(",");
+            Serial.print(rec.ms_since_start); Serial.print(",");
+            Serial.print(rec.temperature_c,  4); Serial.print(",");
+            Serial.print(rec.pressure_dbar,  4); Serial.print(",");
+            Serial.print(rec.spec1,  4); Serial.print(",");
+            Serial.print(rec.spec2,  4); Serial.print(",");
+            Serial.print(rec.spec3,  4); Serial.print(",");
+            Serial.print(rec.spec4,  4); Serial.print(",");
+            Serial.print(rec.spec5,  4); Serial.print(",");
+            Serial.print(rec.spec6,  4); Serial.print(",");
+            Serial.print(rec.spec7,  4); Serial.print(",");
+            Serial.print(rec.spec8,  4); Serial.print(",");
+            Serial.print(rec.spec9,  4); Serial.print(",");
+            Serial.print(rec.spec10, 4); Serial.print(",");
+            Serial.println(rec.spec11, 4);
+        } else {
+            send_ack(PKT_TYPE_NACK, rec.entry_num);
+            Serial.print("[ERROR] Checksum fail record=");
+            Serial.print(rec.entry_num);
+            Serial.print(" expected=0x");
+            Serial.print(computed, HEX);
+            Serial.print(" got=0x");
+            Serial.println(rec.checksum, HEX);
+        }
+    }
+    else if (pkt_type == PKT_TYPE_EOF) {
+        Serial.println("[SESSION] EOF");
+    }
+    else {
+        // ── Text string from probe (e.g. "[ACK]:CONNECT") ─────────────────
+        String incoming = "";
+        for (int i = 0; i < len; i++) incoming += (char)data[i];
+        Serial.println(incoming);
+
+        if (incoming.startsWith("[ACK]:CONNECT")) {
+            s_state = STATE_CONNECTED;
+        }
     }
 }
 

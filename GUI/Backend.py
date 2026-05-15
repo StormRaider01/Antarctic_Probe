@@ -226,18 +226,14 @@ def send_prepare_dive(date_str: str, time_str: str) -> bool:
     commandString = "[CMD]:PREPARE," + date_str + "," + time_str
     _ser.write(commandString.encode())
 
-    yes = wait_for_string(_ser, targetString="[ACK]:PREPARE")  # wait for confirmation
-    wait_for_string(_ser, targetString="[DEBUG]: The date ")
-    wait_for_string(_ser, targetString="[DEBUG]: The time ")
-
-    return yes
+    return wait_for_string(_ser, targetString="[ACK]:PREPARE")
 
 
 def send_retrieve() -> bool:
     """Send CMD:RETRIEVE to trigger ESP-NOW data transfer."""
 
     _ser.write(b"[CMD]:RETRIEVE")
-    wait_for_string(_ser, targetString="[ACK]:RETRIEVE")
+    return wait_for_string(_ser, targetString="[ACK]:RETRIEVE")
 
 
 
@@ -273,24 +269,21 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
 
     # Extend timeout for the duration of the transfer
     _ser.timeout = 30
-    records: list[ProbeRecord] = []
+    records: list[dict] = []
 
     try:
         for raw_line in _ser:
             line = raw_line.decode("utf-8", errors="replace").strip()
 
             if line.startswith("DATA:"):
-                # Evaluate anomaly first
                 _, csv_payload = line.split("DATA:", 1)
                 is_anomaly = False
                 if _detector:
                     is_anomaly = _detector.evaluate_reading(csv_payload.strip())
-                
+
                 rec = _parse_data_line(line)
                 if rec:
                     rec.is_anomaly = is_anomaly
-                    records.append(rec)
-                    
                     mapped_rec = {
                         "sequence":     rec.entry_num,
                         "timestamp_ms": rec.ms_since_start,
@@ -309,9 +302,9 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
                         "spec11":       rec.spec11,
                         "is_anomaly":   rec.is_anomaly
                     }
-                    
+                    records.append(mapped_rec)
                     if on_record:
-                        on_record(mapped_rec)      # pass dict so GUI stays decoupled
+                        on_record(mapped_rec)
 
             elif "[SESSION] EOF" in line:
                 if log_callback:
@@ -319,7 +312,6 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
                 break
 
             elif line.startswith("[BAT]:"):
-                # Battery update mid-session (optional — dongle can send this anytime)
                 if log_callback:
                     log_callback(line)
 
@@ -328,23 +320,10 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
                     log_callback(line)
 
     finally:
-        _ser.timeout = 2    # restore normal timeout
+        _ser.timeout = 2
 
     logger.info("Sync complete. %d records received.", len(records))
-    
-    # Map all records before returning
-    mapped_records = []
-    for r in records:
-        mapped_records.append({
-            "sequence":     r.entry_num,
-            "timestamp_ms": r.ms_since_start,
-            "temperature":  r.temperature_c,
-            "pressure":     r.pressure_dbar,
-            "excitation":   r.excitation_raw,
-            "fluorescence": r.fluorescence_raw,
-            "is_anomaly":   r.is_anomaly
-        })
-    return mapped_records
+    return records
 
 import threading
 
@@ -380,7 +359,7 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
     if log_callback:
         log_callback("[SESSION] Simulated transfer started.")
 
-    records: list[ProbeRecord] = []
+    records: list[dict] = []
 
     with open(csv_path, 'r') as f:
         next(f) # Skip header
@@ -392,7 +371,7 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
 
             while _sim_paused.is_set() and not _sim_stopped.is_set():
                 time.sleep(0.1)
-                
+
             if _sim_stopped.is_set():
                 if log_callback:
                     log_callback("[SESSION] Simulation stopped by user.")
@@ -403,17 +382,14 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
                 continue
 
             data_str = f"DATA:{line}"
-            
-            # Evaluate anomaly first
+
             is_anomaly = False
             if _detector:
                 is_anomaly = _detector.evaluate_reading(line)
-            
+
             rec = _parse_data_line(data_str)
             if rec:
                 rec.is_anomaly = is_anomaly
-                records.append(rec)
-                
                 mapped_rec = {
                     "sequence":     rec.entry_num,
                     "timestamp_ms": rec.ms_since_start,
@@ -432,10 +408,10 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
                     "spec11":       rec.spec11,
                     "is_anomaly":   rec.is_anomaly
                 }
-                
+                records.append(mapped_rec)
                 if on_record:
                     on_record(mapped_rec)
-            
+
             # Sleep 0.5s but allow fast interruption
             for _ in range(5):
                 if _sim_stopped.is_set():
@@ -446,19 +422,7 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
         log_callback("[SESSION] EOF")
 
     logger.info("Simulation complete. %d records processed.", len(records))
-
-    mapped_records = []
-    for r in records:
-        mapped_records.append({
-            "sequence":     r.entry_num,
-            "timestamp_ms": r.ms_since_start,
-            "temperature":  r.temperature_c,
-            "pressure":     r.pressure_dbar,
-            "excitation":   r.excitation_raw,
-            "fluorescence": r.fluorescence_raw,
-            "is_anomaly":   r.is_anomaly
-        })
-    return mapped_records
+    return records
 
 # ===========================================================================
 # Thread helpers for running blocking code without freezing the GUI

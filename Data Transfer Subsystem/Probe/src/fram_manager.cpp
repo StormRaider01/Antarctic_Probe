@@ -50,7 +50,9 @@ int fram_get_records(ProbeRecord_t *out_records, int max_records) {
     if (parsed == 15) {
       // HANDOVER: Build the struct using the binary wire-format (data_packet.h)
       out_records[count] =
-          build_record(entry_num, time_ms, temp, pressure, spec);
+          build_record(entry_num, time_ms, temp, pressure,
+                       spec[0], spec[1], spec[2], spec[3], spec[4],
+                       spec[5], spec[6], spec[7], spec[8], spec[9], spec[10]);
       count++;
     } else {
       Serial.println("F-RAM Read Error: Failed to parse 15 values.");
