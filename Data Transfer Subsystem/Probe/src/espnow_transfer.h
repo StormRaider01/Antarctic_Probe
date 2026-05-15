@@ -52,7 +52,7 @@ ESPNowStatus_t ESPNOW_Init(void);
  * Tears down ESP-NOW and powers down the WiFi radio.
  * Call before entering deep sleep to save power.
  */
-void ESPNOW_Deinit(void);
+int ESPNOW_Deinit(void);
 
 // =============================================================================
 // Transfer 
@@ -65,6 +65,7 @@ void ESPNOW_Deinit(void);
  * `records`       : pointer to array of ProbeRecord_t (from FRAM or RAM)
  * `count`         : number of records to send
  * `session_start` : millis() at the first sensor reading — included in header
+ * `session_date`  : YYYYMMDD format session identifier
  *
  * Returns ESPNOW_OK if all records were delivered and acknowledged.
  *
@@ -75,7 +76,8 @@ void ESPNOW_Deinit(void);
 ESPNowStatus_t ESPNOW_StartTransfer(
     const ProbeRecord_t* records,
     uint32_t             count,
-    uint32_t             session_start_ms
+    uint32_t             session_start_ms,
+    uint32_t             session_date
 );
 
 // =============================================================================

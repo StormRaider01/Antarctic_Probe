@@ -217,15 +217,45 @@ class ProbeApp(ctk.CTk):
             corner_radius=6, command=self._on_retrieve_data, state="normal"
         )
         self._retrieve_btn.pack(**pad)
+        # Container to hold Dev Mode UI elements in place
+        self._sim_container = ctk.CTkFrame(side, fg_color="transparent")
+        self._sim_container.pack(**pad)
 
-        # Dev Mode: Simulate Data
+        # Dev Mode: Initialise Simulation
         self._simulate_btn = ctk.CTkButton(
-            side, text="🧪  Dev Mode: Simulate", width=178,
+            self._sim_container, text="🧪  Dev Mode: Simulate", width=178,
             fg_color=COLOUR_TOOLBAR_HOVER, hover_color="#C62828",
             text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
             corner_radius=6, command=self._on_simulate_data
         )
-        self._simulate_btn.pack(**pad)
+        self._simulate_btn.pack()
+
+        # Dev Mode Control Panel (hidden initially)
+        self._dev_panel = ctk.CTkFrame(self._sim_container, fg_color="transparent")
+        
+        self._sim_play_btn = ctk.CTkButton(
+            self._dev_panel, text="⏸ Pause", width=54,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color="#F57C00",
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 10, "bold"),
+            corner_radius=6, command=self._on_sim_play_pause
+        )
+        self._sim_play_btn.pack(side="left", padx=(0, 4))
+
+        self._sim_restart_btn = ctk.CTkButton(
+            self._dev_panel, text="↺ Reset", width=54,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color="#1976D2",
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 10, "bold"),
+            corner_radius=6, command=self._on_sim_restart
+        )
+        self._sim_restart_btn.pack(side="left", padx=4)
+
+        self._sim_stop_btn = ctk.CTkButton(
+            self._dev_panel, text="⏹ Stop", width=54,
+            fg_color=COLOUR_TOOLBAR_HOVER, hover_color="#C62828",
+            text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 10, "bold"),
+            corner_radius=6, command=self._on_sim_stop
+        )
+        self._sim_stop_btn.pack(side="left", padx=(4, 0))
 
 
 
@@ -754,21 +784,60 @@ class ProbeApp(ctk.CTk):
             return
         self._log("Starting Dev Mode: Data Simulation...")
         self._set_busy(True)
+        
+        self._simulate_btn.pack_forget()
+        self._dev_panel.pack()
+        
+        self._is_sim_paused = False
+        self._sim_play_btn.configure(text="⏸ Pause")
 
         def _log_cb(msg):
             self._log(msg)
 
         def _done(records, err):
             self._set_busy(False)
+            self._dev_panel.pack_forget()
+            self._simulate_btn.pack()
+            
             if err or records is None:
                 self._log(f"Simulation failed: {err}")
-                return
-            self._log(f"Simulation complete — {len(records)} records processed.")
+            else:
+                self._log(f"Simulation complete — {len(records)} records processed.")
+                
+            if getattr(self, '_sim_restart_pending', False):
+                self._sim_restart_pending = False
+                self._on_clear()
+                self.after(100, self._on_simulate_data)
 
         bk.run_in_thread(
             lambda: bk.simulate_incoming_data(log_callback=_log_cb, on_record=self._handle_live_record),
             _done
         )
+
+    def _on_sim_play_pause(self):
+        if not hasattr(self, '_is_sim_paused'):
+            self._is_sim_paused = False
+            
+        if self._is_sim_paused:
+            bk.resume_simulation()
+            self._sim_play_btn.configure(text="⏸  Pause")
+            self._is_sim_paused = False
+            self._log("Simulation resumed.")
+        else:
+            bk.pause_simulation()
+            self._sim_play_btn.configure(text="▶  Play")
+            self._is_sim_paused = True
+            self._log("Simulation paused.")
+
+    def _on_sim_restart(self):
+        self._log("Restarting simulation...")
+        self._sim_restart_pending = True
+        bk.stop_simulation()
+
+    def _on_sim_stop(self):
+        self._log("Stopping simulation...")
+        self._sim_restart_pending = False
+        bk.stop_simulation()
 
     def _handle_live_record(self, r):
         def _do():
