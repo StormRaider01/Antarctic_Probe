@@ -35,18 +35,20 @@ RTC_DATA_ATTR uint32_t session_start_time = 0;
  */
 void handle_offload() {
     Serial.println("\n[HITL] WAKEUP CAUSE: GPIO 1 (Magnetic Switch Simulated)!");
-    Serial.println("[HITL] STATE 3 (OFFLOAD): Retrieving records from F-RAM...");
-    Serial.flush();
-    
+    // SS1 HANDOVER: Retrieve up to 100 records from F-RAM into a local array.
+    // This populates the ProbeRecord_t structs with the 15 numerical values 
+    // (Entry Num, Time, Temp, Pressure, and 11 Spectrometer Channels).
     ProbeRecord_t* records = (ProbeRecord_t*)malloc(sizeof(ProbeRecord_t) * 100);
     if (records != NULL) {
-        int count = fram_get_records(records, 100);
+        // loadRecordsFromFRAM logic: Returns record count and populates the records[] array
+        int count = fram_get_records(records, 100); 
         if (count > 0) {
-            ESPNowStatus_t status = ESPNOW_Init();
+            ESPNowStatus_t status = ESPNOW_Init(); // Re-initialise WiFi for transfer phase
             if (status == ESPNOW_OK) {
                 uint32_t current_date = 20260512; 
+                // HANDOVER TO SAEED (SS1): Stream the records to the receiver dongle
                 ESPNOW_StartTransfer(records, count, session_start_time, current_date);
-                ESPNOW_Deinit();
+                ESPNOW_Deinit(); // Power down WiFi after transfer
             } else {
                 Serial.printf("[ESPNOW] Init failed: %d\n", status);
             }

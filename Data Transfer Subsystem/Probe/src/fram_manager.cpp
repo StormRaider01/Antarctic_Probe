@@ -39,7 +39,8 @@ int fram_get_records(ProbeRecord_t *out_records, int max_records) {
     Serial.print("]: ");
     Serial.println(simulated_fram[i]);
 
-    // sscanf parses the 15-value string into the corresponding variables
+    // sscanf parses the 15-value string (CSV) into the corresponding binary variables.
+    // Order: [0]EntryNum, [1]Time, [2]Temp, [3]Pressure, [4-14]SpecChannels (11 values).
     int parsed = sscanf(simulated_fram[i],
                         "%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
                         &entry_num, &time_ms, &temp, &pressure, &spec[0],
@@ -47,6 +48,7 @@ int fram_get_records(ProbeRecord_t *out_records, int max_records) {
                         &spec[6], &spec[7], &spec[8], &spec[9], &spec[10]);
 
     if (parsed == 15) {
+      // HANDOVER: Build the struct using the binary wire-format (data_packet.h)
       out_records[count] =
           build_record(entry_num, time_ms, temp, pressure, spec);
       count++;
