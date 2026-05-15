@@ -19,17 +19,21 @@ from dataclasses import asdict, dataclass
 
 import serial
 from serial.tools import list_ports
+import time
 
 
 # ===========================================================================
 # Global variables and config
+is_probe_connected = None
+battery_pct = None
 
 logger = logging.getLogger(__name__)
 
 _ser: serial.Serial | None = None   # shared Serial instance, owned by Backend
 
 BAUD_RATE        = 115200
-DONGLE_READY_MSG = "Ready. Waiting for probe..."          # must match what receiver_dongle.ino prints on boot
+DONGLE_READY_MSG = "[HBT] Waiting for GUI connection..."          # must match what receiver_dongle.ino prints on boot
+PROBE_CONNECTED_MSG   = "[ACK]:CONNECT"  # must match .ino after CMD:CONNECT
 
 @dataclass
 class ProbeRecord:
@@ -64,12 +68,50 @@ def _parse_data_line(line: str) -> ProbeRecord | None:
 
 # ===========================================================================
 
-def _send_cmd(cmd: str) -> bool:
-    """Write a CMD: line to the dongle. Returns False if not connected."""
-    if _ser is None or not _ser.is_open:
-        return False
-    _ser.write((cmd + "\n").encode())
-    return True
+import time
+
+def wait_for_string(ser, targetString, timeout=10):
+    global battery_pct
+    start_time = time.time()
+    
+    # Set a short timeout on the serial port itself if not already set
+    # ser.timeout = 0.1 
+
+    #while (time.time() - start_time) < timeout:
+    for _ in range(5):
+        if ser.in_waiting > 0:
+            # Read and clean the line
+            line_raw = ser.readline()
+            try:
+                line = line_raw.decode("utf-8", errors="replace").strip()
+            except Exception:
+                continue
+
+            if line:
+                print(f"[DEBUG WAIT]: {repr(line)}") # repr() helps catch hidden chars
+
+                # Handle Battery Update
+                if "BATT:" in line:
+                    try:
+                        # Split by colon and take the last part
+                        # Before — broke on "70%"
+                        parts = line.split(":")
+                        battery_pct = int(parts[-1].strip())
+
+                        # After — handles "[ACK]:CONNECT,BATT:70%"
+                        batt_str = line.split("BATT:")[1].split(",")[0].replace("%", "").strip()
+                        battery_pct = int(batt_str)
+                    except ValueError:
+                        pass
+
+                # Handle Target String
+                if targetString in line:
+                    return True
+        
+        time.sleep(0.05) # Small sleep to prevent CPU spiking
+    
+    return False
+
 
 # ===========================================================================
 
@@ -83,7 +125,7 @@ async def connect_dongle(port: str | None = None) -> dict | None:
     Returns {"connected": True, "port": port} on success, None on failure.
     GUI's _find_dongle() retries every 3 s on None.
     """
-    global _ser
+    global _ser     # Global declared so that the _ser variable can be updated
 
     ports_to_try = [port] if port else [p.device for p in serial.tools.list_ports.comports()]
 
@@ -101,46 +143,87 @@ async def connect_dongle(port: str | None = None) -> dict | None:
                 
                 # Print everything Python reads so we aren't flying blind
                 if raw:
-                    print(f"[DEBUG - {p}] Read: {line}")
+                    print(f"[DEBUG] Read: {line}")
                 
                 if DONGLE_READY_MSG in line:
                     _ser = candidate
-                    logger.info("Dongle found on %s", p)
+                    print(f"[INFO]: Dongle found on {p}")
+
+                    # Tell dongle to stop heartbeat and enter READY state
+                    # This is to prevent heartbeat messages from interfering with our command/response flow.
+                    candidate.write(b"[CMD]:STOPHEARTBEAT")
+
                     return {"connected": True, "port": p}
             
             candidate.close()
         except Exception as e:
-            print(f"[DEBUG - {p}] Port error: {e}")
+            print(f"[DEBUG] Port error: {e} on {p}")
             continue
 
     return None
 
+
 # ===========================================================================
 
-def disconnect_dongle() -> None:
-    """Close the serial port cleanly."""
-    global _ser
-    if _ser and _ser.is_open:
-        _ser.close()
-    _ser = None
 
+def connect_probe():# -> dict | None:
+    """
+    Send CMD:CONNECT to tell the dongle to initialise ESP-NOW and register
+    the probe as a peer. Blocks until the dongle confirms or times out.
+ 
+    Returns {"probe_connected": True} on success, None on failure.
+    Run via run_in_thread() so the GUI doesn't freeze.
+    """
+    global is_probe_connected
+
+    if _ser is None or not _ser.is_open:
+        raise RuntimeError("Serial port not open. Dongle not found yet.")
+ 
+    _ser.write(b"[CMD]:CONNECT")
+
+    is_probe_connected = wait_for_string(_ser, targetString="[ACK]:CONNECT")
+            
+    return {"probe_connected": is_probe_connected, "battery_pct": battery_pct}
+
+
+# ===========================================================================
+
+def disconnect_probe() -> None:
+    """De-init ESP NOW"""
+    global is_probe_connected
+
+    # Send command
+    _ser.write(b"[CMD]:DISCONNECT")
+
+    is_probe_connected = not wait_for_string(_ser, targetString="[ACK]:DISCONNECT")  # if ack then is_probe_connect = False
+
+    return not is_probe_connected   # if is_probe_connected = False then return True
 
 # ===========================================================================
 # Probe commands
 
 def send_prepare_dive(date_str: str, time_str: str) -> bool:
     """Send CMD:PREPARE,<date>,<time> to the dongle."""
-    return _send_cmd(f"CMD:PREPARE,{date_str},{time_str}")
+
+    commandString = "[CMD]:PREPARE," + date_str + "," + time_str
+    _ser.write(commandString.encode())
+
+    yes = wait_for_string(_ser, targetString="[ACK]:PREPARE")  # wait for confirmation
+    wait_for_string(_ser, targetString="[DEBUG]: The date ")
+    wait_for_string(_ser, targetString="[DEBUG]: The time ")
+
+    return yes
 
 
 def send_retrieve() -> bool:
     """Send CMD:RETRIEVE to trigger ESP-NOW data transfer."""
-    return _send_cmd("CMD:RETRIEVE")
+
+    _ser.write(b"[CMD]:RETRIEVE")
+    wait_for_string(_ser, targetString="[ACK]:RETRIEVE")
 
 
-def send_status_request() -> bool:
-    """Send CMD:STATUS to request battery level."""
-    return _send_cmd("CMD:STATUS")
+
+# ===========================================================================
 
 
 # Initialize the ML Detector dynamically
@@ -153,6 +236,9 @@ try:
 except Exception as e:
     logger.error("Failed to load MarineAnomalyDetector: %s", e)
     _detector = None
+
+
+# ===========================================================================
 
 def sync_probe(log_callback=None, on_record=None) -> list[dict]:
     """
@@ -205,7 +291,7 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
                     log_callback(line)
                 break
 
-            elif line.startswith("BATT:"):
+            elif line.startswith("[BAT]:"):
                 # Battery update mid-session (optional — dongle can send this anytime)
                 if log_callback:
                     log_callback(line)
@@ -379,10 +465,5 @@ def run_in_thread(fn, callback=None):
                 callback(None, exc)
 
     threading.Thread(target=_thread, daemon=True).start()
+    
 
-
-async def mock_get_status() -> dict:
-    """Mock status request since the real probe isn't hooked up yet."""
-    import asyncio
-    await asyncio.sleep(0.5)
-    return {"battery_pct": 100}

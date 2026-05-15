@@ -80,8 +80,8 @@ class ProbeApp(ctk.CTk):
         # Button are initially disabled since the dongle first needs to come online
         self._log("System initialised. Looking for dongle...")
         self._connect_btn.configure(state="disabled")
-        self._dive_btn.configure(state="disabled")
-        self._retrieve_btn.configure(state="disabled")
+        #self._dive_btn.configure(state="disabled")
+        #self._retrieve_btn.configure(state="disabled")
 
         # Give the system time to render before looking for dongle
         self.after(1000, self._find_dongle)
@@ -205,7 +205,7 @@ class ProbeApp(ctk.CTk):
             side, text="↑  Prepare Dive", width=178,
             fg_color=COLOUR_TOOLBAR_HOVER, hover_color="#1565C0",
             text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
-            corner_radius=6, command=self._on_prepare_dive, state="disabled"
+            corner_radius=6, command=self._on_prepare_dive, state="normal"
         )
         self._dive_btn.pack(**pad)
 
@@ -214,7 +214,7 @@ class ProbeApp(ctk.CTk):
             side, text="↓  Retrieve Data", width=178,
             fg_color=COLOUR_TOOLBAR_HOVER, hover_color=COLOUR_ACCENT,
             text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
-            corner_radius=6, command=self._on_retrieve_data, state="disabled"
+            corner_radius=6, command=self._on_retrieve_data, state="normal"
         )
         self._retrieve_btn.pack(**pad)
         # Container to hold Dev Mode UI elements in place
@@ -702,31 +702,36 @@ class ProbeApp(ctk.CTk):
         if self._connected:
             self._set_connected(False, battery=None)
             self._battery_pct = None
-            self._log("Disconnected from probe.")
+
+            # Send CMD to disconnect and de-init ESP NOW
+            disconnect = bk.disconnect_probe()
+            if (disconnect):
+                self._log("Disconnected from probe.")
             return
 
-        self._log("Connecting to probe dongle...")
+        self._log("Connecting to probe ...")
         self._set_busy(True)
 
 
         def _done(result, err):
             self._set_busy(False)
-            if err or not result:
+            if err or result is None:
                 self._log(f"Connection failed: {err}")
                 self._set_connected(False)
                 return
+            self._log("[ACK] Probe acknowledged connection.")
             battery = result.get("battery_pct")
             self._battery_pct = battery
             self._set_connected(True, battery=battery)
-            self._log(f"Connected. Probe battery: {battery}%")
+            self._log(f"[BAT]: Probe battery is at {battery}%")
 
-        bk.run_async(bk.mock_get_status(), _done)
+        bk.run_in_thread(bk.connect_probe, _done)
 
 
 
     # Prepare Dive button
     def _on_retrieve_data(self):
-        if self._busy or not self._connected:
+        if self._busy: #or not self._connected:
             return
         self._log("Sending RETRIEVE command to dongle...")
         self._set_busy(True)
@@ -746,6 +751,30 @@ class ProbeApp(ctk.CTk):
 
         bk.run_in_thread(
             lambda: bk.sync_probe(log_callback=_log_cb, on_record=self._handle_live_record),
+            _done
+        )
+
+
+    def _on_prepare_dive(self):
+        if self._busy:
+            self._log("Busy")
+            return
+
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H:%M:%S")
+        self._log(f"Sending PREPARE command — {date_str} {time_str}")
+        self._set_busy(True)
+
+        def _done(result, err):
+            self._set_busy(False)
+            if err or not result:
+                self._log(f"PREPARE DIVE failed: {err}")
+                return
+            self._log("[ACK] Probe ready for dive.")
+
+        bk.run_in_thread(
+            lambda: bk.send_prepare_dive(date_str, time_str),
             _done
         )
 
@@ -815,18 +844,6 @@ class ProbeApp(ctk.CTk):
             self._records.append(r)
             self._display_records([r])
         self.after(0, _do)
-
-    def _on_prepare_dive(self):
-        if self._busy or not self._connected:
-            return
-        
-        now = datetime.now()
-        ok = bk.send_prepare_dive(now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"))
-
-        if ok:
-            self._log(f"PREPARE DIVE sent — {now.strftime('%Y-%m-%d %H:%M:%S')}")
-        else:
-            self._log("Failed to send PREPARE DIVE — dongle not connected.")
 
 
 
