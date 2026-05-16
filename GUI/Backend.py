@@ -37,49 +37,48 @@ PROBE_CONNECTED_MSG   = "[ACK]:CONNECT"  # must match .ino after CMD:CONNECT
 
 @dataclass
 class ProbeRecord:
-    entry_num:        int
-    ms_since_start:   int
-    temperature_c:    float
-    pressure_dbar:    float
-    spec1:            float
-    spec2:            float
-    spec3:            float
-    spec4:            float
-    spec5:            float
-    spec6:            float  # Excitation
-    spec7:            float  # Fluorescence
-    spec8:            float
-    spec9:            float
-    spec10:           float
-    spec11:           float
+    reading:          int
+    time_ms:          int
+    temp_c:           float
+    depth_m:          float
+    F1_415:           float
+    F2_445:           float  # Excitation
+    F3_480:           float
+    F4_515:           float
+    F5_555:           float
+    F6_590:           float
+    F7_630:           float
+    F8_680:           float  # Chlorophyll-a
+    clear:            float
+    NIR:              float
     is_anomaly:       bool = False
+    classification:   str = ""
 
 
 # ===========================================================================
 
 def _parse_data_line(line: str) -> ProbeRecord | None:
-    """Parse a 'DATA:entry,ms,temp,pressure,spec1...spec11' line."""
+    """Parse a 'DATA:reading,ms,temp,depth,F1...NIR' line."""
     try:
         _, csv = line.split("DATA:", 1)
         parts = csv.strip().split(",")
-        if len(parts) != 15:
+        if len(parts) != 14:
             return None
         return ProbeRecord(
-            entry_num        = int(parts[0]),
-            ms_since_start   = int(parts[1]),
-            temperature_c    = float(parts[2]),
-            pressure_dbar    = float(parts[3]),
-            spec1            = float(parts[4]),
-            spec2            = float(parts[5]),
-            spec3            = float(parts[6]),
-            spec4            = float(parts[7]),
-            spec5            = float(parts[8]),
-            spec6            = float(parts[9]),
-            spec7            = float(parts[10]),
-            spec8            = float(parts[11]),
-            spec9            = float(parts[12]),
-            spec10           = float(parts[13]),
-            spec11           = float(parts[14]),
+            reading          = int(parts[0]),
+            time_ms          = int(parts[1]),
+            temp_c           = float(parts[2]),
+            depth_m          = float(parts[3]),
+            F1_415           = float(parts[4]),
+            F2_445           = float(parts[5]),
+            F3_480           = float(parts[6]),
+            F4_515           = float(parts[7]),
+            F5_555           = float(parts[8]),
+            F6_590           = float(parts[9]),
+            F7_630           = float(parts[10]),
+            F8_680           = float(parts[11]),
+            clear            = float(parts[12]),
+            NIR              = float(parts[13]),
         )
     except (ValueError, IndexError):
         return None
@@ -278,29 +277,31 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
             if line.startswith("DATA:"):
                 _, csv_payload = line.split("DATA:", 1)
                 is_anomaly = False
+                classification = ""
                 if _detector:
-                    is_anomaly = _detector.evaluate_reading(csv_payload.strip())
+                    is_anomaly, classification = _detector.evaluate_reading(csv_payload.strip())
 
                 rec = _parse_data_line(line)
                 if rec:
                     rec.is_anomaly = is_anomaly
+                    rec.classification = classification
                     mapped_rec = {
-                        "sequence":     rec.entry_num,
-                        "timestamp_ms": rec.ms_since_start,
-                        "temperature":  rec.temperature_c,
-                        "pressure":     rec.pressure_dbar,
-                        "spec1":        rec.spec1,
-                        "spec2":        rec.spec2,
-                        "spec3":        rec.spec3,
-                        "spec4":        rec.spec4,
-                        "spec5":        rec.spec5,
-                        "spec6":        rec.spec6,
-                        "spec7":        rec.spec7,
-                        "spec8":        rec.spec8,
-                        "spec9":        rec.spec9,
-                        "spec10":       rec.spec10,
-                        "spec11":       rec.spec11,
-                        "is_anomaly":   rec.is_anomaly
+                        "reading":      rec.reading,
+                        "time_ms":      rec.time_ms,
+                        "temp_c":       rec.temp_c,
+                        "depth_m":      rec.depth_m,
+                        "F1_415":       rec.F1_415,
+                        "F2_445":       rec.F2_445,
+                        "F3_480":       rec.F3_480,
+                        "F4_515":       rec.F4_515,
+                        "F5_555":       rec.F5_555,
+                        "F6_590":       rec.F6_590,
+                        "F7_630":       rec.F7_630,
+                        "F8_680":       rec.F8_680,
+                        "clear":        rec.clear,
+                        "NIR":          rec.NIR,
+                        "is_anomaly":   rec.is_anomaly,
+                        "classification": rec.classification
                     }
                     records.append(mapped_rec)
                     if on_record:
@@ -384,29 +385,31 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
             data_str = f"DATA:{line}"
 
             is_anomaly = False
+            classification = ""
             if _detector:
-                is_anomaly = _detector.evaluate_reading(line)
+                is_anomaly, classification = _detector.evaluate_reading(line)
 
             rec = _parse_data_line(data_str)
             if rec:
                 rec.is_anomaly = is_anomaly
+                rec.classification = classification
                 mapped_rec = {
-                    "sequence":     rec.entry_num,
-                    "timestamp_ms": rec.ms_since_start,
-                    "temperature":  rec.temperature_c,
-                    "pressure":     rec.pressure_dbar,
-                    "spec1":        rec.spec1,
-                    "spec2":        rec.spec2,
-                    "spec3":        rec.spec3,
-                    "spec4":        rec.spec4,
-                    "spec5":        rec.spec5,
-                    "spec6":        rec.spec6,
-                    "spec7":        rec.spec7,
-                    "spec8":        rec.spec8,
-                    "spec9":        rec.spec9,
-                    "spec10":       rec.spec10,
-                    "spec11":       rec.spec11,
-                    "is_anomaly":   rec.is_anomaly
+                    "reading":      rec.reading,
+                    "time_ms":      rec.time_ms,
+                    "temp_c":       rec.temp_c,
+                    "depth_m":      rec.depth_m,
+                    "F1_415":       rec.F1_415,
+                    "F2_445":       rec.F2_445,
+                    "F3_480":       rec.F3_480,
+                    "F4_515":       rec.F4_515,
+                    "F5_555":       rec.F5_555,
+                    "F6_590":       rec.F6_590,
+                    "F7_630":       rec.F7_630,
+                    "F8_680":       rec.F8_680,
+                    "clear":        rec.clear,
+                    "NIR":          rec.NIR,
+                    "is_anomaly":   rec.is_anomaly,
+                    "classification": rec.classification
                 }
                 records.append(mapped_rec)
                 if on_record:
