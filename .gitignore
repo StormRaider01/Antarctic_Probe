@@ -14,3 +14,6 @@ Data Transfer Subsystem/Probe/src/Antarctic_probe/fram_manager.h
 *.pyc
 *.pyc
 GUI/__pycache__/Backend.cpython-314.pyc
+Sensors.ino
+SensorWithDetails.txt
+SensorRaw.txt

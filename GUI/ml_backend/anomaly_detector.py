@@ -88,12 +88,12 @@ class MarineAnomalyDetector:
         if f2 < 1.0:
             f2 = 1.0
             
-        # Academic baselines: Ratios against excitation F2_445
-        if f8 / f2 > 0.3:
+        # Academic baselines & physical sensor calibration: Ratios against excitation F2_445
+        if f8 / f2 > 0.075:
             return "Phytoplankton Bloom (Chlorophyll-a)"
-        elif f5 / f2 > 0.25 or f6 / f2 > 0.25:
+        elif (f5 + f6) / f2 > 0.08:
             return "Cyanobacteria (Phycoerythrin)"
-        elif f1 / f2 > 0.25 or f3 / f2 > 0.25:
+        elif (f1 + f3) / f2 > 0.08:
             return "Bacterial Decay (CDOM)"
             
         return "Non-Biological Variance / Sensor Artifact"

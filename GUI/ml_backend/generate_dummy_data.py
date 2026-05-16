@@ -14,12 +14,11 @@ def generate_dummy_data(output_file, num_sequences=100):
     """
     data = []
     
-    # Define anomaly distribution
-    # Let's say 85 normal, 5 Phyto, 5 CDOM, 5 Cyano
-    num_normal = int(num_sequences * 0.85)
-    num_phyto = int(num_sequences * 0.05)
-    num_cdom = int(num_sequences * 0.05)
-    num_cyano = num_sequences - num_normal - num_phyto - num_cdom
+    # Let's say 50 normal, ~17 Phyto, ~17 CDOM, ~16 Cyano (50 anomalous total)
+    num_normal = 50
+    num_phyto = 17
+    num_cdom = 17
+    num_cyano = 16
     
     sequence_types = (
         ['normal'] * num_normal + 
@@ -56,18 +55,18 @@ def generate_dummy_data(output_file, num_sequences=100):
             clear = int(f2 * 1.5)
             nir = int(random.uniform(0.01, 0.02) * f2)
             
-            # Inject Anomalies based on XAI constraints
+            # Inject Anomalies based on XAI constraints (~0.09 ratio)
             if seq_type == 'phyto':
-                # Phytoplankton (Chlorophyll-a) -> F8_680 ramps proportionally
-                f8 = int(random.uniform(0.4, 0.6) * f2) # Reaches ~2000+
+                # Phytoplankton (Chlorophyll-a) -> F8_680 reaches ~0.09 ratio
+                f8 = int(random.uniform(0.085, 0.10) * f2) 
             elif seq_type == 'cdom':
-                # Bacterial Decay (CDOM) -> F1_415 and F3_480 ramp heavily
-                f1 = int(random.uniform(0.3, 0.5) * f2)
-                f3 = int(random.uniform(0.3, 0.5) * f2)
+                # Bacterial Decay (CDOM) -> F1_415 and F3_480 combined reach ~0.09
+                f1 = int(random.uniform(0.04, 0.05) * f2)
+                f3 = int(random.uniform(0.04, 0.05) * f2)
             elif seq_type == 'cyano':
-                # Cyanobacteria (Phycoerythrin) -> F5_555 and F6_590 ramp heavily
-                f5 = int(random.uniform(0.3, 0.5) * f2)
-                f6 = int(random.uniform(0.3, 0.5) * f2)
+                # Cyanobacteria (Phycoerythrin) -> F5_555 and F6_590 combined reach ~0.09
+                f5 = int(random.uniform(0.04, 0.05) * f2)
+                f6 = int(random.uniform(0.04, 0.05) * f2)
                 
             row = [reading_id, time_ms, temp_c, depth_m, f1, f2, f3, f4, f5, f6, f7, f8, clear, nir]
             data.append(row)
