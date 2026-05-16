@@ -46,7 +46,7 @@ COLOUR_ACCENT        = "#1E90FF"
 
 # ======================================================================
 # Graph configuration
-SAMPLES_PER_GROUP = 15   # number of readings per fluorescence sample group
+SAMPLES_PER_GROUP = 11   # number of readings per fluorescence sample group (11-step PWM ramp)
 
 # ======================================================================
 

@@ -96,7 +96,7 @@ class MarineAnomalyDetector:
         elif f1 / f2 > 0.25 or f3 / f2 > 0.25:
             return "Bacterial Decay (CDOM)"
             
-        return "Unknown Anomaly"
+        return "Non-Biological Variance / Sensor Artifact"
 
 if __name__ == '__main__':
     detector = MarineAnomalyDetector()
