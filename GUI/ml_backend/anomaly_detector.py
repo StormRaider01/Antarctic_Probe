@@ -37,8 +37,9 @@ class MarineAnomalyDetector:
             return False
             
         try:
-            # Parse the comma-separated string into a list of integers
-            values = [int(val.strip()) for val in raw_string.split(',')]
+            # Parse the comma-separated string into a list of integers.
+            # float() first handles both "1358" (simulator) and "1400.0000" (dongle wire format).
+            values = [int(float(val.strip())) for val in raw_string.split(',')]
             
             # Ensure we have exactly 15 values as expected by the protocol
             if len(values) != 15:

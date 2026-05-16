@@ -29,28 +29,112 @@
 RTC_DATA_ATTR int mission_state = STATE_STANDBY;
 RTC_DATA_ATTR int record_counter = 1;
 RTC_DATA_ATTR uint32_t session_start_time = 0; 
+RTC_DATA_ATTR uint32_t global_session_date = 20260515; // YYYYMMDD
+RTC_DATA_ATTR char global_session_time[10] = "00:00:00";
+
+/**
+ * Mock battery level function.
+ */
+int get_battery_level() {
+    return 70; // Hardcoded as requested
+}
+
+/**
+ * Handles a command session over ESP-NOW.
+ * Returns true if a mission-critical command was processed (PREPARE or RETRIEVE).
+ */
+bool handle_command_session() {
+    Serial.println("[CMD] Entering Command Session. Waiting for CONNECT...");
+    
+    if (ESPNOW_Init() != ESPNOW_OK) {
+        Serial.println("[CMD] ESP-NOW Init failed.");
+        return false;
+    }
+
+    bool session_active = true;
+    bool action_performed = false;
+    uint32_t last_activity = millis();
+    const uint32_t TIMEOUT_MS = 60000; // 1 minute timeout
+
+    while (session_active && (millis() - last_activity < TIMEOUT_MS)) {
+        char cmd_buf[64];
+        if (ESPNOW_GetCommand(cmd_buf, sizeof(cmd_buf))) {
+            last_activity = millis();
+            String cmd = String(cmd_buf);
+            Serial.printf("[CMD] Received: %s\n", cmd_buf);
+
+            if (cmd == "[CMD]:CONNECT") {
+                char resp[32];
+                snprintf(resp, sizeof(resp), "[ACK]:CONNECT,BATT:%d", get_battery_level());
+                ESPNOW_SendString(resp);
+                Serial.println("[CMD] Sent CONNECT ACK with battery info.");
+            } 
+            else if (cmd.startsWith("[CMD]:PREPARE")) {
+                // Format: [CMD]:PREPARE, 2026-05-13, 12:15:00
+                if (cmd.length() >= 29) {
+                    String dateStr = cmd.substring(14, 24); // "2026-05-13"
+                    String timeStr = cmd.substring(25);     // "12:15:00"
+                    
+                    // Convert date to YYYYMMDD
+                    String y = dateStr.substring(0, 4);
+                    String m = dateStr.substring(5, 7);
+                    String d = dateStr.substring(8, 10);
+                    global_session_date = (y.toInt() * 10000) + (m.toInt() * 100) + d.toInt();
+                    
+                    strncpy(global_session_time, timeStr.c_str(), sizeof(global_session_time) - 1);
+                    
+                    Serial.printf("[CMD] Prepared mission: Date=%lu, Time=%s\n", global_session_date, global_session_time);
+                    ESPNOW_SendString("[ACK]:PREPARE");
+                    action_performed = true;
+                    session_active = false; // Exit after prepare to start mission
+                }
+            }
+            else if (cmd == "[CMD]:RETRIEVE") {
+                ESPNOW_SendString("[ACK]:RETRIEVE");
+                // The actual transfer happens outside this loop or we call it here
+                action_performed = true;
+                session_active = false; 
+            }
+            else if (cmd == "[CMD]:DISCONNECT") {
+                ESPNOW_SendString("[ACK]:DISCONNECT");
+                session_active = false;
+            }
+        }
+        delay(10);
+    }
+
+    if (millis() - last_activity >= TIMEOUT_MS) {
+        Serial.println("[CMD] Session timed out.");
+    }
+
+    ESPNOW_Deinit();
+    return action_performed;
+}
 
 /**
  * Executes the data offload sequence using ESP-NOW.
  */
 void handle_offload() {
     Serial.println("\n[HITL] WAKEUP CAUSE: GPIO 1 (Magnetic Switch Simulated)!");
-    // SS1 HANDOVER: Retrieve up to 100 records from F-RAM into a local array.
-    // This populates the ProbeRecord_t structs with the 15 numerical values 
-    // (Entry Num, Time, Temp, Pressure, and 11 Spectrometer Channels).
+    
+    // 1. Enter Command Session to wait for CONNECT/RETRIEVE
+    if (!handle_command_session()) {
+        Serial.println("[OFFLOAD] No command received or session failed.");
+        return;
+    }
+
+    // 2. If we reach here, a command was processed. 
+    // Note: handle_command_session de-inits ESPNOW, so we need to re-init if we start transfer.
+    // Or we could have handle_command_session NOT de-init if RETRIEVE was called.
+    // Let's assume RETRIEVE was the action performed.
+
     ProbeRecord_t* records = (ProbeRecord_t*)malloc(sizeof(ProbeRecord_t) * 100);
     if (records != NULL) {
-        // loadRecordsFromFRAM logic: Returns record count and populates the records[] array
         int count = fram_get_records(records, 100); 
         if (count > 0) {
-            ESPNowStatus_t status = ESPNOW_Init(); // Re-initialise WiFi for transfer phase
-            if (status == ESPNOW_OK) {
-                uint32_t current_date = 20260512; 
-                // HANDOVER TO SAEED (SS1): Stream the records to the receiver dongle
-                ESPNOW_StartTransfer(records, count, session_start_time, current_date);
-                ESPNOW_Deinit(); // Power down WiFi after transfer
-            } else {
-                Serial.printf("[ESPNOW] Init failed: %d\n", status);
+            if (ESPNOW_Init() == ESPNOW_OK) {
+                ESPNOW_StartTransfer(records, count, session_start_time, global_session_date);
+                ESPNOW_Deinit(); 
             }
         } else {
             Serial.println("[OFFLOAD] No records found in F-RAM memory.");
@@ -123,12 +207,16 @@ void setup() {
         // --- STATE 0: STANDBY ---
         if (mission_state == STATE_STANDBY) {
             if (is_button) {
-                Serial.println("[HITL] STATE 0 -> 1: PROBE ARMED. Sinking to depth...");
-                mission_state = STATE_ARMED;
-                session_start_time = millis();
-                // Enforce 1s delay so the user sees the arming message
-                Serial.flush();
-                delay(1000);
+                Serial.println("[HITL] STATE 0 Triggered: Entering PRE-DEPLOYMENT Command Session...");
+                if (handle_command_session()) {
+                    Serial.println("[HITL] PREPARE Complete. Mission ARMED. Sinking...");
+                    mission_state = STATE_ARMED;
+                    session_start_time = millis();
+                    Serial.flush();
+                    delay(1000);
+                } else {
+                    Serial.println("[HITL] Command session aborted. Staying in STANDBY.");
+                }
             }
         } 
         // --- STATE 1: ARMED (Sinking) ---

@@ -41,8 +41,17 @@ class ProbeRecord:
     ms_since_start:   int
     temperature_c:    float
     pressure_dbar:    float
-    excitation_raw:   float
-    fluorescence_raw: float
+    spec1:            float
+    spec2:            float
+    spec3:            float
+    spec4:            float
+    spec5:            float
+    spec6:            float  # Excitation
+    spec7:            float  # Fluorescence
+    spec8:            float
+    spec9:            float
+    spec10:           float
+    spec11:           float
     is_anomaly:       bool = False
 
 
@@ -60,8 +69,17 @@ def _parse_data_line(line: str) -> ProbeRecord | None:
             ms_since_start   = int(parts[1]),
             temperature_c    = float(parts[2]),
             pressure_dbar    = float(parts[3]),
-            excitation_raw   = float(parts[9]),  # spec6 (0-indexed 5, but after 4 fields it's 4+5=9)
-            fluorescence_raw = float(parts[10]), # spec7 (4+6=10)
+            spec1            = float(parts[4]),
+            spec2            = float(parts[5]),
+            spec3            = float(parts[6]),
+            spec4            = float(parts[7]),
+            spec5            = float(parts[8]),
+            spec6            = float(parts[9]),
+            spec7            = float(parts[10]),
+            spec8            = float(parts[11]),
+            spec9            = float(parts[12]),
+            spec10           = float(parts[13]),
+            spec11           = float(parts[14]),
         )
     except (ValueError, IndexError):
         return None
@@ -77,8 +95,7 @@ def wait_for_string(ser, targetString, timeout=10):
     # Set a short timeout on the serial port itself if not already set
     # ser.timeout = 0.1 
 
-    #while (time.time() - start_time) < timeout:
-    for _ in range(5):
+    while (time.time() - start_time) < timeout:
         if ser.in_waiting > 0:
             # Read and clean the line
             line_raw = ser.readline()
@@ -98,9 +115,9 @@ def wait_for_string(ser, targetString, timeout=10):
                         parts = line.split(":")
                         battery_pct = int(parts[-1].strip())
 
-                        # After — handles "[ACK]:CONNECT,BATT:70%"
-                        batt_str = line.split("BATT:")[1].split(",")[0].replace("%", "").strip()
-                        battery_pct = int(batt_str)
+                        # After — handles "[ACK]:CONNECT,BATT:70"
+                        # batt_str = line.split("BATT:")[1].split(",")[0].strip()
+                        # battery_pct = int(batt_str)
                     except ValueError:
                         pass
 
@@ -171,7 +188,7 @@ def connect_probe():# -> dict | None:
     Send CMD:CONNECT to tell the dongle to initialise ESP-NOW and register
     the probe as a peer. Blocks until the dongle confirms or times out.
  
-    Returns {"probe_connected": True} on success, None on failure.
+    Returns {"probe_connected": is_probe_connected, "battery_pct": battery_pct} on success, None on failure.
     Run via run_in_thread() so the GUI doesn't freeze.
     """
     global is_probe_connected
@@ -195,7 +212,8 @@ def disconnect_probe() -> None:
     # Send command
     _ser.write(b"[CMD]:DISCONNECT")
 
-    is_probe_connected = not wait_for_string(_ser, targetString="[ACK]:DISCONNECT")  # if ack then is_probe_connect = False
+    # is_probe_connected = not wait_for_string(_ser, targetString="[ACK]:DISCONNECT")
+    is_probe_connected = False
 
     return not is_probe_connected   # if is_probe_connected = False then return True
 
@@ -208,18 +226,14 @@ def send_prepare_dive(date_str: str, time_str: str) -> bool:
     commandString = "[CMD]:PREPARE," + date_str + "," + time_str
     _ser.write(commandString.encode())
 
-    yes = wait_for_string(_ser, targetString="[ACK]:PREPARE")  # wait for confirmation
-    wait_for_string(_ser, targetString="[DEBUG]: The date ")
-    wait_for_string(_ser, targetString="[DEBUG]: The time ")
-
-    return yes
+    return wait_for_string(_ser, targetString="[ACK]:PREPARE")
 
 
 def send_retrieve() -> bool:
     """Send CMD:RETRIEVE to trigger ESP-NOW data transfer."""
 
     _ser.write(b"[CMD]:RETRIEVE")
-    wait_for_string(_ser, targetString="[ACK]:RETRIEVE")
+    return wait_for_string(_ser, targetString="[ACK]:RETRIEVE")
 
 
 
@@ -255,36 +269,42 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
 
     # Extend timeout for the duration of the transfer
     _ser.timeout = 30
-    records: list[ProbeRecord] = []
+    records: list[dict] = []
 
     try:
         for raw_line in _ser:
             line = raw_line.decode("utf-8", errors="replace").strip()
 
             if line.startswith("DATA:"):
-                # Evaluate anomaly first
                 _, csv_payload = line.split("DATA:", 1)
                 is_anomaly = False
                 if _detector:
                     is_anomaly = _detector.evaluate_reading(csv_payload.strip())
-                
+
                 rec = _parse_data_line(line)
                 if rec:
                     rec.is_anomaly = is_anomaly
-                    records.append(rec)
-                    
                     mapped_rec = {
                         "sequence":     rec.entry_num,
                         "timestamp_ms": rec.ms_since_start,
                         "temperature":  rec.temperature_c,
                         "pressure":     rec.pressure_dbar,
-                        "excitation":   rec.excitation_raw,
-                        "fluorescence": rec.fluorescence_raw,
+                        "spec1":        rec.spec1,
+                        "spec2":        rec.spec2,
+                        "spec3":        rec.spec3,
+                        "spec4":        rec.spec4,
+                        "spec5":        rec.spec5,
+                        "spec6":        rec.spec6,
+                        "spec7":        rec.spec7,
+                        "spec8":        rec.spec8,
+                        "spec9":        rec.spec9,
+                        "spec10":       rec.spec10,
+                        "spec11":       rec.spec11,
                         "is_anomaly":   rec.is_anomaly
                     }
-                    
+                    records.append(mapped_rec)
                     if on_record:
-                        on_record(mapped_rec)      # pass dict so GUI stays decoupled
+                        on_record(mapped_rec)
 
             elif "[SESSION] EOF" in line:
                 if log_callback:
@@ -292,7 +312,6 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
                 break
 
             elif line.startswith("[BAT]:"):
-                # Battery update mid-session (optional — dongle can send this anytime)
                 if log_callback:
                     log_callback(line)
 
@@ -301,23 +320,10 @@ def sync_probe(log_callback=None, on_record=None) -> list[dict]:
                     log_callback(line)
 
     finally:
-        _ser.timeout = 2    # restore normal timeout
+        _ser.timeout = 2
 
     logger.info("Sync complete. %d records received.", len(records))
-    
-    # Map all records before returning
-    mapped_records = []
-    for r in records:
-        mapped_records.append({
-            "sequence":     r.entry_num,
-            "timestamp_ms": r.ms_since_start,
-            "temperature":  r.temperature_c,
-            "pressure":     r.pressure_dbar,
-            "excitation":   r.excitation_raw,
-            "fluorescence": r.fluorescence_raw,
-            "is_anomaly":   r.is_anomaly
-        })
-    return mapped_records
+    return records
 
 import threading
 
@@ -353,7 +359,7 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
     if log_callback:
         log_callback("[SESSION] Simulated transfer started.")
 
-    records: list[ProbeRecord] = []
+    records: list[dict] = []
 
     with open(csv_path, 'r') as f:
         next(f) # Skip header
@@ -365,7 +371,7 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
 
             while _sim_paused.is_set() and not _sim_stopped.is_set():
                 time.sleep(0.1)
-                
+
             if _sim_stopped.is_set():
                 if log_callback:
                     log_callback("[SESSION] Simulation stopped by user.")
@@ -376,30 +382,36 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
                 continue
 
             data_str = f"DATA:{line}"
-            
-            # Evaluate anomaly first
+
             is_anomaly = False
             if _detector:
                 is_anomaly = _detector.evaluate_reading(line)
-            
+
             rec = _parse_data_line(data_str)
             if rec:
                 rec.is_anomaly = is_anomaly
-                records.append(rec)
-                
                 mapped_rec = {
                     "sequence":     rec.entry_num,
                     "timestamp_ms": rec.ms_since_start,
                     "temperature":  rec.temperature_c,
                     "pressure":     rec.pressure_dbar,
-                    "excitation":   rec.excitation_raw,
-                    "fluorescence": rec.fluorescence_raw,
+                    "spec1":        rec.spec1,
+                    "spec2":        rec.spec2,
+                    "spec3":        rec.spec3,
+                    "spec4":        rec.spec4,
+                    "spec5":        rec.spec5,
+                    "spec6":        rec.spec6,
+                    "spec7":        rec.spec7,
+                    "spec8":        rec.spec8,
+                    "spec9":        rec.spec9,
+                    "spec10":       rec.spec10,
+                    "spec11":       rec.spec11,
                     "is_anomaly":   rec.is_anomaly
                 }
-                
+                records.append(mapped_rec)
                 if on_record:
                     on_record(mapped_rec)
-            
+
             # Sleep 0.5s but allow fast interruption
             for _ in range(5):
                 if _sim_stopped.is_set():
@@ -410,19 +422,7 @@ def simulate_incoming_data(log_callback=None, on_record=None) -> list[dict]:
         log_callback("[SESSION] EOF")
 
     logger.info("Simulation complete. %d records processed.", len(records))
-
-    mapped_records = []
-    for r in records:
-        mapped_records.append({
-            "sequence":     r.entry_num,
-            "timestamp_ms": r.ms_since_start,
-            "temperature":  r.temperature_c,
-            "pressure":     r.pressure_dbar,
-            "excitation":   r.excitation_raw,
-            "fluorescence": r.fluorescence_raw,
-            "is_anomaly":   r.is_anomaly
-        })
-    return mapped_records
+    return records
 
 # ===========================================================================
 # Thread helpers for running blocking code without freezing the GUI

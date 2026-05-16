@@ -9,8 +9,11 @@
  *   1. ESPNOW_Init()                          — once in setup()
  *   2. [probe dives, SS2 logs records to FRAM]
  *   3. [reed switch detected by SS2 state machine]
- *   4. ESPNOW_StartTransfer(records, count)   — blocks until done
- *   5. [SS2 state machine decides next action — sleep, retry, etc.]
+ *   4. ESPNOW_Init()
+ *   5. ESPNOW_GetCommand()                    — check for commands from dongle
+ *   6. ESPNOW_SendString()                     — send ACKs/responses
+ *   7. ESPNOW_StartTransfer(records, count)   — blocks until data offload done
+ *   8. ESPNOW_Deinit()
  *
  * The probe side is the ESP-NOW *sender*.
  * The receiver dongle (second ESP32, plugged into laptop) is the *receiver*.
@@ -53,6 +56,28 @@ ESPNowStatus_t ESPNOW_Init(void);
  * Call before entering deep sleep to save power.
  */
 int ESPNOW_Deinit(void);
+bool ESPNOW_IsInitialised(void);
+
+// =============================================================================
+// Command Handling
+/**
+ * ESPNOW_SendString()
+ * Sends a raw string (e.g. command ACK) to the dongle.
+ */
+ESPNowStatus_t ESPNOW_SendString(const char* msg);
+
+/**
+ * ESPNOW_GetCommand()
+ * Copies the last received command string into `buf`.
+ * Returns true if a command was available.
+ */
+bool ESPNOW_GetCommand(char* buf, int max_len);
+
+/**
+ * ESPNOW_ClearCommand()
+ * Resets the internal command buffer.
+ */
+void ESPNOW_ClearCommand(void);
 
 // =============================================================================
 // Transfer 
