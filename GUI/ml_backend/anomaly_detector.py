@@ -21,79 +21,110 @@ class MarineAnomalyDetector:
         except Exception as e:
             print(f"Error loading model: {e}")
 
-    def evaluate_reading(self, raw_string: str) -> bool:
+    def evaluate_reading(self, raw_string: str) -> tuple[bool, str]:
         """
-        Evaluates a single raw comma-separated sensor reading string to detect anomalies.
+        Evaluates a single raw comma-separated sensor reading string to detect anomalies,
+        and provides Explainable AI (XAI) classification if anomalous.
         
         Args:
-            raw_string (str): 15-value comma-separated string 
-                              (e.g., "1,1777968359,1358,2183,92...").
+            raw_string (str): 14-value comma-separated string 
+                              (e.g., "1,1777968359,20.5,0.1,92...").
                               
         Returns:
-            bool: True if the reading is an anomaly, False if normal.
+            tuple: (is_anomaly: bool, classification_string: str)
         """
         if self.model is None:
             print("Model is not loaded. Cannot evaluate reading.")
-            return False
+            return False, "Model Not Loaded"
             
         try:
-            # Parse the comma-separated string into a list of integers.
-            # float() first handles both "1358" (simulator) and "1400.0000" (dongle wire format).
-            values = [int(float(val.strip())) for val in raw_string.split(',')]
+            # Parse the comma-separated string into a list of floats.
+            values = [float(val.strip()) for val in raw_string.split(',')]
             
-            # Ensure we have exactly 15 values as expected by the protocol
-            if len(values) != 15:
-                print(f"Warning: Expected 15 values, but received {len(values)}.")
-                return False
+            # Ensure we have exactly 14 values as expected by the protocol
+            if len(values) != 14:
+                print(f"Warning: Expected 14 values, but received {len(values)}.")
+                return False, "Invalid Data Length"
                 
-            # Drop the first two elements: RecordNum (0) and UnixTime (1)
+            # Drop the first two elements: reading (0) and time_ms (1)
             sensor_values = values[2:]
             
-            # The model expects a 2D array or dataframe. We use a dataframe with the exact feature names 
-            # to prevent scikit-learn warnings about missing feature names during inference.
-            feature_names = ['RawTemp', 'RawPressure'] + [f'RawSpec{i}' for i in range(1, 12)]
+            # The model expects a 2D array or dataframe.
+            feature_names = ['temp_c', 'depth_m', 'F1_415', 'F2_445', 'F3_480', 'F4_515', 'F5_555', 'F6_590', 'F7_630', 'F8_680', 'clear', 'NIR']
             df_input = pd.DataFrame([sensor_values], columns=feature_names)
             
             # Predict (-1 is anomaly, 1 is normal)
             prediction = self.model.predict(df_input)[0]
+            is_anomaly = bool(prediction == -1)
             
-            # Return True for anomaly, False for normal
-            return bool(prediction == -1)
+            if is_anomaly:
+                # Explainable AI Classification
+                classification = self._classify_signature(sensor_values)
+                return True, classification
+            else:
+                return False, "Normal"
             
         except ValueError as ve:
             print(f"Data parsing error: {ve}")
-            return False
+            return False, "Parsing Error"
         except Exception as e:
             print(f"Error during inference: {e}")
-            return False
+            return False, "Inference Error"
+
+    def _classify_signature(self, sensor_values: list) -> str:
+        """
+        Applies deterministic XAI rules based on academic baselines.
+        sensor_values: [temp_c, depth_m, F1_415, F2_445, F3_480, F4_515, F5_555, F6_590, F7_630, F8_680, clear, NIR]
+        indices: F1=2, F2=3, F3=4, F4=5, F5=6, F6=7, F7=8, F8=9, clear=10, NIR=11
+        """
+        f1 = sensor_values[2]
+        f2 = sensor_values[3] # Excitation
+        f3 = sensor_values[4]
+        f5 = sensor_values[6]
+        f6 = sensor_values[7]
+        f8 = sensor_values[9]
+        
+        # Avoid division by zero
+        if f2 < 1.0:
+            f2 = 1.0
+            
+        # Academic baselines: Ratios against excitation F2_445
+        if f8 / f2 > 0.3:
+            return "Phytoplankton Bloom (Chlorophyll-a)"
+        elif f5 / f2 > 0.25 or f6 / f2 > 0.25:
+            return "Cyanobacteria (Phycoerythrin)"
+        elif f1 / f2 > 0.25 or f3 / f2 > 0.25:
+            return "Bacterial Decay (CDOM)"
+            
+        return "Unknown Anomaly"
 
 if __name__ == '__main__':
     detector = MarineAnomalyDetector()
     
-    # 1. Normal String (simulated from our dataset parameters: low spectrometer values)
-    normal_string = "1,1777968359,1358,2183,92,105,88,110,95,100,120,80,90,110,105"
+    # 1. Normal String
+    normal_string = "7,117,20.50,0.100,0,0,0,0,1,0,0,1,1,2"
     
-    # 2. Anomalous String (simulated massive spikes in Spec6 and Spec7)
-    anomalous_string = "2,1777968419,1358,2183,92,105,88,110,95,3500,3800,80,90,110,105"
+    # 2. Anomalous String (Phytoplankton)
+    anomalous_string = "7,582,20.50,0.100,56,1429,860,76,45,36,58,700,1212,36"
     
     # Measure execution time for normal inference
     start_time_normal = time.perf_counter()
-    is_anomaly_normal = detector.evaluate_reading(normal_string)
+    is_anomaly_normal, cls_normal = detector.evaluate_reading(normal_string)
     end_time_normal = time.perf_counter()
     
     # Measure execution time for anomalous inference
     start_time_anomalous = time.perf_counter()
-    is_anomaly_anomalous = detector.evaluate_reading(anomalous_string)
+    is_anomaly_anomalous, cls_anomalous = detector.evaluate_reading(anomalous_string)
     end_time_anomalous = time.perf_counter()
     
     exec_time_normal = end_time_normal - start_time_normal
     exec_time_anomalous = end_time_anomalous - start_time_anomalous
     
     print("\n--- Validation & Performance Test ---")
-    print(f"Normal String Evaluation: Is Anomaly? {is_anomaly_normal}")
+    print(f"Normal String Evaluation: Is Anomaly? {is_anomaly_normal} | Class: {cls_normal}")
     print(f"Execution Time (Normal): {exec_time_normal:.5f} seconds")
     
-    print(f"\nAnomalous String Evaluation: Is Anomaly? {is_anomaly_anomalous}")
+    print(f"\nAnomalous String Evaluation: Is Anomaly? {is_anomaly_anomalous} | Class: {cls_anomalous}")
     print(f"Execution Time (Anomalous): {exec_time_anomalous:.5f} seconds")
     
     if exec_time_normal < 2.0 and exec_time_anomalous < 2.0:

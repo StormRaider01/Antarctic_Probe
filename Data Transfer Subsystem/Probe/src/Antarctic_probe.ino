@@ -151,16 +151,40 @@ void handle_offload() {
 }
 
 /**
- * Generates a dummy sensor reading and saves it to the simulated F-RAM.
+ * Generates a dummy sensor reading (11-step PWM ramp) and saves it to simulated F-RAM.
  */
 void log_sensor_data() {
-    Serial.println("[HITL] Waking up (Timer/Cycle)...");
+    Serial.println("[HITL] Waking up (Timer/Cycle) -> Generating 11-step LED PWM ramp...");
     
-    uint32_t current_time_ms = (record_counter - 1) * LOGGING_INTERVAL_SEC * 1000;
-    String dummy_data = String(record_counter) + "," + String(current_time_ms) + ",1400.0,2200.0,100.0,105.0,90.0,110.0,95.0,100.0,120.0,80.0,90.0,110.0,105.0";
+    uint32_t base_time_ms = (record_counter - 1) * LOGGING_INTERVAL_SEC * 1000;
     
-    Serial.println("[HITL] Saving to F-RAM: " + dummy_data);
-    fram_write_record(dummy_data);
+    for (int step = 0; step < 11; step++) {
+        uint32_t current_time_ms = base_time_ms + (step * 116); // ~116ms per step
+        float temp_c = 20.50;
+        float depth_m = 0.100;
+        
+        // Base values
+        float F1 = 15.0 * step;
+        float F2 = 350.0 * step; // Excitation ramps up
+        float F3 = 200.0 * step;
+        float F4 = 18.0 * step;
+        float F5 = 10.0 * step;
+        float F6 = 8.0 * step;
+        float F7 = 13.0 * step;
+        float F8 = 25.0 * step;
+        float clear = 300.0 * step;
+        float NIR = 8.0 * step;
+
+        String dummy_data = String(record_counter) + "," + String(current_time_ms) + "," + 
+                            String(temp_c, 2) + "," + String(depth_m, 3) + "," + 
+                            String(F1, 0) + "," + String(F2, 0) + "," + String(F3, 0) + "," + 
+                            String(F4, 0) + "," + String(F5, 0) + "," + String(F6, 0) + "," + 
+                            String(F7, 0) + "," + String(F8, 0) + "," + String(clear, 0) + "," + String(NIR, 0);
+                            
+        // Serial.println("[HITL] Saving to F-RAM: " + dummy_data); // Suppress to avoid spam, fram_write_record prints it
+        fram_write_record(dummy_data);
+    }
+    
     record_counter++;
     Serial.flush();
 }
