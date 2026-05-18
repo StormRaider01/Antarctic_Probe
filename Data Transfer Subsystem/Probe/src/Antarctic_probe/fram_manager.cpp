@@ -39,23 +39,23 @@ int fram_get_records(ProbeRecord_t *out_records, int max_records) {
     Serial.print("]: ");
     Serial.println(simulated_fram[i]);
 
-    // sscanf parses the 15-value string (CSV) into the corresponding binary variables.
-    // Order: [0]EntryNum, [1]Time, [2]Temp, [3]Pressure, [4-14]SpecChannels (11 values).
+    // sscanf parses the 14-value string (CSV) into the corresponding binary variables.
+    // Order: [0]reading, [1]time_ms, [2]temp_c, [3]depth_m, [4-13]SpecChannels (10 values).
     int parsed = sscanf(simulated_fram[i],
-                        "%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
+                        "%u,%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
                         &entry_num, &time_ms, &temp, &pressure, &spec[0],
                         &spec[1], &spec[2], &spec[3], &spec[4], &spec[5],
-                        &spec[6], &spec[7], &spec[8], &spec[9], &spec[10]);
+                        &spec[6], &spec[7], &spec[8], &spec[9]);
 
-    if (parsed == 15) {
+    if (parsed == 14) {
       // HANDOVER: Build the struct using the binary wire-format (data_packet.h)
       out_records[count] =
           build_record(entry_num, time_ms, temp, pressure,
                        spec[0], spec[1], spec[2], spec[3], spec[4],
-                       spec[5], spec[6], spec[7], spec[8], spec[9], spec[10]);
+                       spec[5], spec[6], spec[7], spec[8], spec[9]);
       count++;
     } else {
-      Serial.println("F-RAM Read Error: Failed to parse 15 values.");
+      Serial.println("F-RAM Read Error: Failed to parse 14 values.");
     }
   }
   return count;

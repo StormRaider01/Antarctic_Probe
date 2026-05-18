@@ -10,7 +10,7 @@
 void fram_init();
 
 /**
- * @brief Writes a 15-value comma-separated string payload to the F-RAM.
+ * @brief Writes a 14-value comma-separated string payload to the F-RAM.
  */
 void fram_write_record(String payload);
 

@@ -9,32 +9,31 @@
  * SESSION HEADER (sent once at start of transfer, 16 bytes):
  *   Lets the receiver know how many records to expect and when the session started.
  *
- * PROBE RECORD (62 bytes per measurement):
+ * PROBE RECORD (58 bytes per measurement):
  *   Byte offset map (all multi-byte fields little-endian):
  *   [0]      uint8   pkt_type       — always PKT_TYPE_RECORD (0xA1)
- *   [1:5]    uint32  entry_num      — record index (0-based)
- *   [5:9]    uint32  ms_since_start — ms since session_start_ms
- *   [9:13]   float32 temperature_c  — °C
- *   [13:17]  float32 pressure_dbar  — dbar
- *   [17:21]  float32 spec1          — spectrometer ch1
- *   [21:25]  float32 spec2          — spectrometer ch2
- *   [25:29]  float32 spec3          — spectrometer ch3
- *   [29:33]  float32 spec4          — spectrometer ch4
- *   [33:37]  float32 spec5          — spectrometer ch5
- *   [37:41]  float32 spec6          — spectrometer ch6 (excitation)
- *   [41:45]  float32 spec7          — spectrometer ch7 (fluorescence)
- *   [45:49]  float32 spec8          — spectrometer ch8
- *   [49:53]  float32 spec9          — spectrometer ch9
- *   [53:57]  float32 spec10         — spectrometer ch10
- *   [57:61]  float32 spec11         — spectrometer ch11
- *   [61]     uint8   checksum       — XOR of bytes [0:61]
+ *   [1:5]    uint32  reading        — record ID (spans 11 rows)
+ *   [5:9]    uint32  time_ms        — ms since session_start_ms
+ *   [9:13]   float32 temp_c         — °C
+ *   [13:17]  float32 depth_m        — meters
+ *   [17:21]  float32 F1_415         — Spectrometer F1
+ *   [21:25]  float32 F2_445         — Spectrometer F2 (excitation)
+ *   [25:29]  float32 F3_480         — Spectrometer F3
+ *   [29:33]  float32 F4_515         — Spectrometer F4
+ *   [33:37]  float32 F5_555         — Spectrometer F5
+ *   [37:41]  float32 F6_590         — Spectrometer F6
+ *   [41:45]  float32 F7_630         — Spectrometer F7
+ *   [45:49]  float32 F8_680         — Spectrometer F8 (chlorophyll-a)
+ *   [49:53]  float32 clear          — Spectrometer Clear
+ *   [53:57]  float32 NIR            — Spectrometer NIR
+ *   [57]     uint8   checksum       — XOR of bytes [0:57]
  *
- * Checksum: XOR of all 61 preceding bytes. Receiver rejects packet if mismatch.
+ * Checksum: XOR of all 57 preceding bytes. Receiver rejects packet if mismatch.
  *
- * Chlorophyll-A is NOT computed onboard. The laptop derives it from:
- *   spec6 (excitation) and spec7 (fluorescence) post-hoc (SS2's ML processing step).
+ * Chlorophyll-A and XAI classification is NOT computed onboard. The laptop derives it from:
+ *   XAI ratios against F2_445 (SS2's ML processing step).
  *
- * ESP-NOW MTU = 250 bytes. One record (62 bytes) fits easily.
+ * ESP-NOW MTU = 250 bytes. One record (58 bytes) fits easily.
  */
 
 #pragma once
@@ -62,21 +61,20 @@ typedef struct __attribute__((packed)) {
 // ── Per-record payload ─────────────────────────────────────────────────────
 typedef struct __attribute__((packed)) {
     uint8_t  pkt_type;          // Always PKT_TYPE_RECORD (0xA1)
-    uint32_t entry_num;         // Monotonically increasing record index (0-based)
-    uint32_t ms_since_start;    // Milliseconds since session_start_ms
-    float    temperature_c;     // °C — from sensor (SS4)
-    float    pressure_dbar;     // dbar — from pressure sensor (SS4)
-    float    spec1;             // Spectrometer channel 1
-    float    spec2;             // Spectrometer channel 2
-    float    spec3;             // Spectrometer channel 3
-    float    spec4;             // Spectrometer channel 4
-    float    spec5;             // Spectrometer channel 5
-    float    spec6;             // Spectrometer channel 6 — excitation
-    float    spec7;             // Spectrometer channel 7 — fluorescence
-    float    spec8;             // Spectrometer channel 8
-    float    spec9;             // Spectrometer channel 9
-    float    spec10;            // Spectrometer channel 10
-    float    spec11;            // Spectrometer channel 11
+    uint32_t reading;           // Record index/ID (spans 11 rows)
+    uint32_t time_ms;           // Milliseconds since session_start_ms
+    float    temp_c;            // °C — from sensor
+    float    depth_m;           // meters — from pressure sensor
+    float    F1_415;            // Spectrometer channel 1
+    float    F2_445;            // Spectrometer channel 2 (excitation)
+    float    F3_480;            // Spectrometer channel 3
+    float    F4_515;            // Spectrometer channel 4
+    float    F5_555;            // Spectrometer channel 5
+    float    F6_590;            // Spectrometer channel 6
+    float    F7_630;            // Spectrometer channel 7
+    float    F8_680;            // Spectrometer channel 8 (Chlorophyll-a)
+    float    clear;             // Spectrometer Clear channel
+    float    NIR;               // Spectrometer NIR channel
     uint8_t  checksum;          // XOR of all preceding bytes in this struct
 } ProbeRecord_t;
 
@@ -96,7 +94,7 @@ typedef struct __attribute__((packed)) {
 
 // Compile-time size checks
 static_assert(sizeof(SessionHeader_t) == 16, "SessionHeader_t size mismatch");
-static_assert(sizeof(ProbeRecord_t)   == 62, "ProbeRecord_t size mismatch");
+static_assert(sizeof(ProbeRecord_t)   == 58, "ProbeRecord_t size mismatch");
 
 // ── Checksum helper ───────────────────────────────────────────────────────
 // XOR of all bytes in buf[0..len-1].
@@ -111,39 +109,37 @@ static inline uint8_t xor_checksum(const uint8_t* buf, uint8_t len) {
 // Fills and checksums a ProbeRecord_t from real-unit values.
 // Call this when building records to be stored in FRAM or sent over ESP-NOW.
 static inline ProbeRecord_t build_record(
-    uint32_t entry_num,
-    uint32_t ms_since_start,
-    float    temperature_c,
-    float    pressure_dbar,
-    float    spec1,
-    float    spec2,
-    float    spec3,
-    float    spec4,
-    float    spec5,
-    float    spec6,
-    float    spec7,
-    float    spec8,
-    float    spec9,
-    float    spec10,
-    float    spec11
+    uint32_t reading,
+    uint32_t time_ms,
+    float    temp_c,
+    float    depth_m,
+    float    F1_415,
+    float    F2_445,
+    float    F3_480,
+    float    F4_515,
+    float    F5_555,
+    float    F6_590,
+    float    F7_630,
+    float    F8_680,
+    float    clear,
+    float    NIR
 ) {
     ProbeRecord_t r;
     r.pkt_type       = PKT_TYPE_RECORD;
-    r.entry_num      = entry_num;
-    r.ms_since_start = ms_since_start;
-    r.temperature_c  = temperature_c;
-    r.pressure_dbar  = pressure_dbar;
-    r.spec1          = spec1;
-    r.spec2          = spec2;
-    r.spec3          = spec3;
-    r.spec4          = spec4;
-    r.spec5          = spec5;
-    r.spec6          = spec6;
-    r.spec7          = spec7;
-    r.spec8          = spec8;
-    r.spec9          = spec9;
-    r.spec10         = spec10;
-    r.spec11         = spec11;
+    r.reading        = reading;
+    r.time_ms        = time_ms;
+    r.temp_c         = temp_c;
+    r.depth_m        = depth_m;
+    r.F1_415         = F1_415;
+    r.F2_445         = F2_445;
+    r.F3_480         = F3_480;
+    r.F4_515         = F4_515;
+    r.F5_555         = F5_555;
+    r.F6_590         = F6_590;
+    r.F7_630         = F7_630;
+    r.F8_680         = F8_680;
+    r.clear          = clear;
+    r.NIR            = NIR;
     r.checksum       = xor_checksum((const uint8_t*)&r, sizeof(r) - 1);
     return r;
 }

@@ -46,7 +46,7 @@ COLOUR_ACCENT        = "#1E90FF"
 
 # ======================================================================
 # Graph configuration
-SAMPLES_PER_GROUP = 15   # number of readings per fluorescence sample group
+SAMPLES_PER_GROUP = 11   # number of readings per fluorescence sample group (11-step PWM ramp)
 
 # ======================================================================
 
@@ -404,7 +404,7 @@ class ProbeApp(ctk.CTk):
 
         # drop down options for y-axis selector
         # Graph will automiatically update when selection changes
-        y_options = ["temperature", "pressure"] + [f"spec{i}" for i in range(1, 12)]
+        y_options = ["temp_c", "depth_m", "F1_415", "F2_445", "F3_480", "F4_515", "F5_555", "F6_590", "F7_630", "F8_680", "clear", "NIR"]
         self._y_menu = ctk.CTkOptionMenu(
             ctrl, variable=self._graph_y_var, values=y_options,
             command=lambda _: self._refresh_graph(),
@@ -523,14 +523,19 @@ class ProbeApp(ctk.CTk):
 
         y_key  = self._graph_y_var.get()
         y_labels = {
-            "temperature":  "Temperature (°C)",
-            "pressure":     "Pressure (dbar)",
+            "temp_c":  "Temperature (°C)",
+            "depth_m": "Depth (m)",
+            "F1_415":  "F1 (415nm)",
+            "F2_445":  "F2 (445nm - Excitation)",
+            "F3_480":  "F3 (480nm)",
+            "F4_515":  "F4 (515nm)",
+            "F5_555":  "F5 (555nm)",
+            "F6_590":  "F6 (590nm)",
+            "F7_630":  "F7 (630nm)",
+            "F8_680":  "F8 (680nm - Chlorophyll-a)",
+            "clear":   "Clear Channel",
+            "NIR":     "NIR Channel",
         }
-        for i in range(1, 12):
-            label = f"Spectrometer Ch{i}"
-            if i == 6: label += " (Excitation)"
-            if i == 7: label += " (Fluorescence)"
-            y_labels[f"spec{i}"] = label
 
         if self._graph_mode.get() == "all":
             records = self._records
@@ -548,22 +553,22 @@ class ProbeApp(ctk.CTk):
             if records:
                 r = records[0]
                 # Display first 4 mission-critical constants that aren't the Y-axis
-                base_keys = ["temperature", "pressure", "spec6", "spec7"]
+                base_keys = ["temp_c", "depth_m", "F2_445", "F8_680"]
                 const_keys = [k for k in base_keys if k != y_key]
                 parts = []
                 for k in const_keys:
-                    label = k.replace("spec6", "Excitation").replace("spec7", "Fluorescence").capitalize()
+                    label = y_labels.get(k, k).split('(')[0].strip() # Get short name
                     parts.append(f"{label}: {r[k]:.2f}")
                 self._const_label.configure(text="   |   ".join(parts))
 
 
 
 
-        xs = [r["timestamp_ms"] for r in records]
+        xs = [r["time_ms"] for r in records]
         ys = [r.get(y_key, 0) for r in records]
 
         # Filter out anomaly points
-        anomaly_xs = [r["timestamp_ms"] for r in records if r.get("is_anomaly")]
+        anomaly_xs = [r["time_ms"] for r in records if r.get("is_anomaly")]
         anomaly_ys = [r.get(y_key, 0) for r in records if r.get("is_anomaly")]
 
         # ==============================================================================
@@ -605,9 +610,9 @@ class ProbeApp(ctk.CTk):
     # Writes the header line for the raw data tab
     def _write_data_header(self):
         header = (
-            f"{'SEQ':>4} {'TIME(ms)':>9} {'TEMP':>7} {'PRES':>7} "
-            f"{'S1(Ex)':>7} {'S2':>6} {'S3':>6} {'S4':>6} {'S5':>6} "
-            f"{'S6':>6} {'S7':>6} {'S8(Fl)':>7} {'S9':>6} {'S10':>6} {'S11':>6}\n"
+            f"{'SEQ':>4} {'TIME(ms)':>9} {'TEMP':>7} {'DPTH':>7} "
+            f"{'F1':>6} {'F2(Ex)':>7} {'F3':>6} {'F4':>6} {'F5':>6} "
+            f"{'F6':>6} {'F7':>6} {'F8(Fl)':>7} {'CLR':>6} {'NIR':>6}\n"
         )
         divider = "─" * (len(header) - 1) + "\n"
         self._data_append(header + divider)
@@ -641,13 +646,13 @@ class ProbeApp(ctk.CTk):
     # Displays a list of records in the raw data tab, and refreshes the graph
     def _display_records(self, records):
         for r in records:
-            anomaly_flag = "  [ANOMALY]" if r.get('is_anomaly') else ""
+            anomaly_flag = f"  [ANOMALY: {r.get('classification', 'Unknown')}]" if r.get('is_anomaly') else ""
             line = (
-                f"{r['sequence']:>4} {r['timestamp_ms']:>9} "
-                f"{r['temperature']:>7.1f} {r['pressure']:>7.1f} "
-                f"{r['spec1']:>6.0f} {r['spec2']:>6.0f} {r['spec3']:>6.0f} {r['spec4']:>6.0f} "
-                f"{r['spec5']:>6.0f} {r['spec6']:>7.0f} {r['spec7']:>7.0f} {r['spec8']:>6.0f} "
-                f"{r['spec9']:>6.0f} {r['spec10']:>6.0f} {r['spec11']:>6.0f}{anomaly_flag}\n"
+                f"{r['reading']:>4} {r['time_ms']:>9} "
+                f"{r['temp_c']:>7.1f} {r['depth_m']:>7.2f} "
+                f"{r['F1_415']:>6.0f} {r['F2_445']:>7.0f} {r['F3_480']:>6.0f} {r['F4_515']:>6.0f} "
+                f"{r['F5_555']:>6.0f} {r['F6_590']:>6.0f} {r['F7_630']:>6.0f} {r['F8_680']:>7.0f} "
+                f"{r['clear']:>6.0f} {r['NIR']:>6.0f}{anomaly_flag}\n"
             )
             self._data_append(line)
         self._refresh_graph()
@@ -870,10 +875,10 @@ class ProbeApp(ctk.CTk):
         try:
             with open(path, mode="w", newline="") as f:
                 fieldnames = [
-                    "sequence", "timestamp_ms", "temperature", "pressure",
-                    "spec1", "spec2", "spec3", "spec4", "spec5",
-                    "spec6", "spec7", "spec8", "spec9", "spec10", "spec11",
-                    "is_anomaly",
+                    "reading", "time_ms", "temp_c", "depth_m",
+                    "F1_415", "F2_445", "F3_480", "F4_515", "F5_555",
+                    "F6_590", "F7_630", "F8_680", "clear", "NIR",
+                    "is_anomaly", "classification"
                 ]
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
@@ -901,22 +906,22 @@ class ProbeApp(ctk.CTk):
                 records = []
                 for i, row in enumerate(reader):
                     records.append({
-                        "sequence":     int(row.get("sequence", i)),
-                        "timestamp_ms": int(row.get("timestamp_ms", 0)),
-                        "temperature":  float(row.get("temperature", 0)),
-                        "pressure":     float(row.get("pressure", 0)),
-                        "spec1":        float(row.get("spec1", 0)),
-                        "spec2":        float(row.get("spec2", 0)),
-                        "spec3":        float(row.get("spec3", 0)),
-                        "spec4":        float(row.get("spec4", 0)),
-                        "spec5":        float(row.get("spec5", 0)),
-                        "spec6":        float(row.get("spec6", 0)),
-                        "spec7":        float(row.get("spec7", 0)),
-                        "spec8":        float(row.get("spec8", 0)),
-                        "spec9":        float(row.get("spec9", 0)),
-                        "spec10":       float(row.get("spec10", 0)),
-                        "spec11":       float(row.get("spec11", 0)),
+                        "reading":      int(row.get("reading", i)),
+                        "time_ms":      int(row.get("time_ms", 0)),
+                        "temp_c":       float(row.get("temp_c", 0)),
+                        "depth_m":      float(row.get("depth_m", 0)),
+                        "F1_415":       float(row.get("F1_415", 0)),
+                        "F2_445":       float(row.get("F2_445", 0)),
+                        "F3_480":       float(row.get("F3_480", 0)),
+                        "F4_515":       float(row.get("F4_515", 0)),
+                        "F5_555":       float(row.get("F5_555", 0)),
+                        "F6_590":       float(row.get("F6_590", 0)),
+                        "F7_630":       float(row.get("F7_630", 0)),
+                        "F8_680":       float(row.get("F8_680", 0)),
+                        "clear":        float(row.get("clear", 0)),
+                        "NIR":          float(row.get("NIR", 0)),
                         "is_anomaly":   row.get("is_anomaly", "False") == "True",
+                        "classification": row.get("classification", ""),
                     })
             self._records.extend(records)
             self._display_records(records)
