@@ -79,7 +79,7 @@ class ProbeApp(ctk.CTk):
         # Initial log message and button states
         # Button are initially disabled since the dongle first needs to come online
         self._log("System initialised. Looking for dongle...")
-        self._connect_btn.configure(state="disabled")
+        # self._connect_btn.configure(state="disabled")
         #self._dive_btn.configure(state="disabled")
         #self._retrieve_btn.configure(state="disabled")
 
@@ -287,11 +287,6 @@ class ProbeApp(ctk.CTk):
             text_color=COLOUR_TOOLBAR_TEXT, font=("Courier New", 12),
             corner_radius=6, command=self._on_clear
         ).pack(**pad)
-
-        ctk.CTkLabel(
-            side, text="v2.0 — SS1", font=("Courier New", 9),
-            text_color="#4A6A8A", fg_color="transparent"
-        ).pack(side="bottom", pady=10)
 
 
 
@@ -611,8 +606,8 @@ class ProbeApp(ctk.CTk):
     def _write_data_header(self):
         header = (
             f"{'SEQ':>4} {'TIME(ms)':>9} {'TEMP':>7} {'PRES':>7} "
-            f"{'S1':>6} {'S2':>6} {'S3':>6} {'S4':>6} {'S5':>6} "
-            f"{'S6(Ex)':>7} {'S7(Fl)':>7} {'S8':>6} {'S9':>6} {'S10':>6} {'S11':>6}\n"
+            f"{'S1(Ex)':>7} {'S2':>6} {'S3':>6} {'S4':>6} {'S5':>6} "
+            f"{'S6':>6} {'S7':>6} {'S8(Fl)':>7} {'S9':>6} {'S10':>6} {'S11':>6}\n"
         )
         divider = "─" * (len(header) - 1) + "\n"
         self._data_append(header + divider)
