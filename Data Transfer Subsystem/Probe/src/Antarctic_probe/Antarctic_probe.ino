@@ -9,11 +9,11 @@
 #define DEBUG_MODE 1  // Set to 0 for production
 
 #if DEBUG_MODE
-    #define SINKING_DELAY_SEC 15  
-    #define LOGGING_INTERVAL_SEC 5 
+    #define SINKING_DELAY_SEC 15
+    #define LOGGING_INTERVAL_SEC 5
 #else
-    #define SINKING_DELAY_SEC 600 
-    #define LOGGING_INTERVAL_SEC 300 
+    #define SINKING_DELAY_SEC 600
+    #define LOGGING_INTERVAL_SEC 300
 #endif
 
 // MISSION STATES
@@ -28,7 +28,7 @@
 // Simulated State Persistence (survives deep sleep)
 RTC_DATA_ATTR int mission_state = STATE_STANDBY;
 RTC_DATA_ATTR int record_counter = 1;
-RTC_DATA_ATTR uint32_t session_start_time = 0; 
+RTC_DATA_ATTR uint32_t session_start_time = 0;
 RTC_DATA_ATTR uint32_t global_session_date = 20260515; // YYYYMMDD
 RTC_DATA_ATTR char global_session_time[10] = "00:00:00";
 
@@ -45,7 +45,7 @@ int get_battery_level() {
  */
 bool handle_command_session() {
     Serial.println("[CMD] Entering Command Session. Waiting for CONNECT...");
-    
+
     if (ESPNOW_Init() != ESPNOW_OK) {
         Serial.println("[CMD] ESP-NOW Init failed.");
         return false;
@@ -68,21 +68,21 @@ bool handle_command_session() {
                 snprintf(resp, sizeof(resp), "[ACK]:CONNECT,BATT:%d", get_battery_level());
                 ESPNOW_SendString(resp);
                 Serial.println("[CMD] Sent CONNECT ACK with battery info.");
-            } 
+            }
             else if (cmd.startsWith("[CMD]:PREPARE")) {
                 // Format: [CMD]:PREPARE, 2026-05-13, 12:15:00
                 if (cmd.length() >= 29) {
                     String dateStr = cmd.substring(14, 24); // "2026-05-13"
                     String timeStr = cmd.substring(25);     // "12:15:00"
-                    
+
                     // Convert date to YYYYMMDD
                     String y = dateStr.substring(0, 4);
                     String m = dateStr.substring(5, 7);
                     String d = dateStr.substring(8, 10);
                     global_session_date = (y.toInt() * 10000) + (m.toInt() * 100) + d.toInt();
-                    
+
                     strncpy(global_session_time, timeStr.c_str(), sizeof(global_session_time) - 1);
-                    
+
                     Serial.printf("[CMD] Prepared mission: Date=%lu, Time=%s\n", global_session_date, global_session_time);
                     ESPNOW_SendString("[ACK]:PREPARE");
                     action_performed = true;
@@ -93,7 +93,7 @@ bool handle_command_session() {
                 ESPNOW_SendString("[ACK]:RETRIEVE");
                 // The actual transfer happens outside this loop or we call it here
                 action_performed = true;
-                session_active = false; 
+                session_active = false;
             }
             else if (cmd == "[CMD]:DISCONNECT") {
                 ESPNOW_SendString("[ACK]:DISCONNECT");
@@ -116,32 +116,32 @@ bool handle_command_session() {
  */
 void handle_offload() {
     Serial.println("\n[HITL] WAKEUP CAUSE: GPIO 1 (Magnetic Switch Simulated)!");
-    
+
     // 1. Enter Command Session to wait for CONNECT/RETRIEVE
     if (!handle_command_session()) {
         Serial.println("[OFFLOAD] No command received or session failed.");
         return;
     }
 
-    // 2. If we reach here, a command was processed. 
+    // 2. If we reach here, a command was processed.
     // Note: handle_command_session de-inits ESPNOW, so we need to re-init if we start transfer.
     // Or we could have handle_command_session NOT de-init if RETRIEVE was called.
     // Let's assume RETRIEVE was the action performed.
 
     ProbeRecord_t* records = (ProbeRecord_t*)malloc(sizeof(ProbeRecord_t) * 100);
     if (records != NULL) {
-        int count = fram_get_records(records, 100); 
+        int count = fram_get_records(records, 100);
         if (count > 0) {
             if (ESPNOW_Init() == ESPNOW_OK) {
                 ESPNOW_StartTransfer(records, count, session_start_time, global_session_date);
-                ESPNOW_Deinit(); 
+                ESPNOW_Deinit();
             }
         } else {
             Serial.println("[OFFLOAD] No records found in F-RAM memory.");
         }
         free(records);
     }
-    
+
     fram_clear();
     record_counter = 1;
     session_start_time = 0;
@@ -204,18 +204,18 @@ void setup() {
     uint32_t wait_start = millis();
     // Give the USB-CDC plenty of time to stabilize on the host
     while (!Serial && (millis() - wait_start < 2000));
-    delay(500); 
+    delay(500);
 
     // --- SPURIOUS WAKEUP SUPPRESSION ---
     // If it's just noise, go back to sleep with minimal chatter
     if (is_spurious && mission_state == STATE_STANDBY) {
         // We print a single dot to show the chip is alive but looping
-        Serial.print("."); 
+        Serial.print(".");
         goto sleep_transition;
     }
 
     Serial.println("\n\n--- ESP32-C6 Antarctic Probe Firmware ---");
-    
+
     if (!is_deepsleep) {
         Serial.println("SYSTEM START: Initial Power-On / Manual Reset");
         Serial.println("MISSION STATE: 0 (STANDBY)");
@@ -242,7 +242,7 @@ void setup() {
                     Serial.println("[HITL] Command session aborted. Staying in STANDBY.");
                 }
             }
-        } 
+        }
         // --- STATE 1: ARMED (Sinking) ---
         else if (mission_state == STATE_ARMED) {
             if (is_button) {
@@ -292,7 +292,7 @@ void setup() {
     sleep_transition:
     // --- FINAL SLEEP PREPARATION ---
     esp_sleep_enable_ext1_wakeup(1ULL << REED_SWITCH_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
-    
+
     if (mission_state == STATE_STANDBY) {
         if (!is_spurious) Serial.println("[HITL] Entering Indefinite Deep Sleep (Waiting for Arming)...");
     } else {

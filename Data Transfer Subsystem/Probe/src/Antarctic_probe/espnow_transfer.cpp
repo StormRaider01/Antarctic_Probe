@@ -27,7 +27,8 @@
 // Receiver MAC address
 // ** CHANGE THIS to the actual MAC of the receiver dongle before deploying **
 // Updated to Kiyuran's board as per TestProbe.ino
-static const uint8_t RECEIVER_MAC[6] = {0x9C, 0x13, 0x9E, 0xCC, 0x35, 0x50};
+// static const uint8_t RECEIVER_MAC[6] = {0x9C, 0x13, 0x9E, 0xCC, 0x35, 0x50};
+static const uint8_t RECEIVER_MAC[6] = {0x88, 0x57, 0x21, 0x2E, 0xA8, 0x58}; // new WEMOS LOLIN board with pins soldered
 
 // ===========================================================================
 
@@ -147,6 +148,9 @@ ESPNowStatus_t ESPNOW_Init(void) {
 
     // ESP-NOW requires WiFi to be running in station mode (radio on, not associated)
     WiFi.mode(WIFI_STA);
+    delay(100);
+    Serial.print("[INFO] Dongle MAC: ");
+    Serial.println(WiFi.macAddress());
     WiFi.disconnect();   // ensure not connected to any AP
 
     if (esp_now_init() != ESP_OK) {

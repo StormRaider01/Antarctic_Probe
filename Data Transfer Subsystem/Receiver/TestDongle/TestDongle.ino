@@ -6,7 +6,8 @@
 // ===========================================================================
 // Probe MAC — set this to the probe ESP32's MAC address
 //static uint8_t PROBE_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-static uint8_t PROBE_MAC[6] = {0x9C, 0x13, 0x9E, 0xCD, 0x0B, 0x84};       // Devon's Board IP
+// static uint8_t PROBE_MAC[6] = {0x9C, 0x13, 0x9E, 0xCD, 0x0B, 0x84};       // Devon's Board IP
+static uint8_t PROBE_MAC[6] = {0x88, 0x57, 0x21, 0x2D, 0x30, 0x3C};   // New WEMOS LOLIN board no pins
 
 esp_now_peer_info_t peerInfo;       // To hold information on the peer
 
@@ -228,6 +229,7 @@ void setup() {
     Serial.println("\n===== SS1 Receiver Dongle =====");
 
     WiFi.mode(WIFI_STA);
+    delay(100);
     Serial.print("[INFO] Dongle MAC: ");
     Serial.println(WiFi.macAddress());
 
