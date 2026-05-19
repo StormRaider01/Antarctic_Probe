@@ -408,7 +408,7 @@
         .bipartite-img {
             width: 100%;
             height: auto;
-            max-height: 18vh;
+            max-height: 42vh;
             object-fit: contain;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 8px;
@@ -419,6 +419,22 @@
         .bipartite-img:hover {
             border-color: var(--glacial-cyan);
             transform: scale(1.03);
+        }
+
+        .bipartite-gui-img {
+            width: 100%;
+            height: auto;
+            max-height: 42vh;
+            object-fit: contain;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            border: 1px solid rgba(226, 241, 248, 0.08);
+            transition: all 0.3s ease;
+        }
+
+        .bipartite-gui-img:hover {
+            border-color: var(--glacial-cyan);
+            transform: scale(1.02);
         }
 
         /* Deployment Slide 6 */
@@ -458,7 +474,7 @@
         .deploy-img {
             width: 100%;
             height: auto;
-            max-height: 25vh;
+            max-height: 42vh;
             object-fit: contain;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 8px;
@@ -771,10 +787,13 @@
                 margin-top: 8px;
             }
             .bipartite-img {
-                max-height: 15vh;
+                max-height: 32vh;
+            }
+            .bipartite-gui-img {
+                max-height: 32vh;
             }
             .deploy-img {
-                max-height: 20vh;
+                max-height: 35vh;
             }
             .img-panel {
                 max-height: 32vh;
@@ -820,10 +839,13 @@
                 font-size: 1.4rem;
             }
             .bipartite-img {
-                max-height: 12vh;
+                max-height: 24vh;
+            }
+            .bipartite-gui-img {
+                max-height: 24vh;
             }
             .deploy-img {
-                max-height: 15vh;
+                max-height: 28vh;
             }
             .img-panel {
                 max-height: 26vh;
@@ -1100,36 +1122,11 @@
                         </div>
                     </div>
                     
-                    <!-- RIGHT COLUMN: BLUEPRINT TERMINAL -->
+                    <!-- RIGHT COLUMN: GUI IMAGE -->
                     <div class="bipartite-card">
                         <div class="bipartite-title">Mission Control GUI (Software)</div>
                         <p style="font-size: 0.85rem; margin-bottom: 8px; color: rgba(226, 241, 248, 0.65);">High-performance data visualizer and offline analysis dashboard.</p>
-                        <div class="terminal-panel">
-                            <div class="terminal-header">
-                                <div class="terminal-dot red"></div>
-                                <div class="terminal-dot yellow"></div>
-                                <div class="terminal-dot green"></div>
-                                <div class="terminal-title">architecture.log</div>
-                            </div>
-                            <div class="terminal-body">
-                                <div class="blueprint-row">
-                                    <i class="fa-solid fa-satellite-dish"></i>
-                                    <div><strong>Base Telemetry</strong><span>ESP-NOW dongle bridges probe data over USB serial.</span></div>
-                                </div>
-                                <div class="blueprint-row">
-                                    <i class="fa-solid fa-window-maximize"></i>
-                                    <div><strong>Core Interface</strong><span>CustomTkinter offline dashboard for field work.</span></div>
-                                </div>
-                                <div class="blueprint-row">
-                                    <i class="fa-solid fa-gears"></i>
-                                    <div><strong>Background Tasks</strong><span>Asynchronous multi-threaded serial telemetry parser.</span></div>
-                                </div>
-                                <div class="blueprint-row">
-                                    <i class="fa-solid fa-chart-line"></i>
-                                    <div><strong>Live Analytics</strong><span>Real-time matplotlib optical and pressure graphs.</span></div>
-                                </div>
-                            </div>
-                        </div>
+                        <img src="Mission Control GUI.png" alt="Mission Control GUI dashboard software" class="bipartite-gui-img">
                     </div>
                 </div>
             </div>
@@ -1209,7 +1206,32 @@
                 </div>
                 
                 <div style="display: flex; flex-direction: column; gap: 15px; justify-content: center;">
-                    <img src="Mission Control GUI.png" alt="Mission Control UI" class="img-panel" style="max-height: 200px; object-fit: contain;">
+                    <div class="terminal-panel">
+                        <div class="terminal-header">
+                            <div class="terminal-dot red"></div>
+                            <div class="terminal-dot yellow"></div>
+                            <div class="terminal-dot green"></div>
+                            <div class="terminal-title">architecture.log</div>
+                        </div>
+                        <div class="terminal-body">
+                            <div class="blueprint-row">
+                                <i class="fa-solid fa-satellite-dish"></i>
+                                <div><strong>Base Telemetry</strong><span>ESP-NOW dongle bridges probe data over USB serial.</span></div>
+                            </div>
+                            <div class="blueprint-row">
+                                <i class="fa-solid fa-window-maximize"></i>
+                                <div><strong>Core Interface</strong><span>CustomTkinter offline dashboard for field work.</span></div>
+                            </div>
+                            <div class="blueprint-row">
+                                <i class="fa-solid fa-gears"></i>
+                                <div><strong>Background Tasks</strong><span>Asynchronous multi-threaded serial telemetry parser.</span></div>
+                            </div>
+                            <div class="blueprint-row">
+                                <i class="fa-solid fa-chart-line"></i>
+                                <div><strong>Live Analytics</strong><span>Real-time matplotlib optical and pressure graphs.</span></div>
+                            </div>
+                        </div>
+                    </div>
                     
                     <div class="subsystem-stats">
                         <div class="stat-item">
