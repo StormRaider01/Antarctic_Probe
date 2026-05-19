@@ -481,6 +481,31 @@
             border: 1px solid rgba(226, 241, 248, 0.08);
         }
 
+        /* Subsystem Bullet Points */
+        .subsystem-bullets {
+            list-style: none;
+            padding-left: 0;
+            margin-top: 10px;
+        }
+
+        .subsystem-bullets li {
+            margin-bottom: 8px;
+            position: relative;
+            padding-left: 20px;
+            font-size: 0.88rem;
+            color: rgba(226, 241, 248, 0.85);
+            line-height: 1.4;
+        }
+
+        .subsystem-bullets li::before {
+            content: "✦";
+            position: absolute;
+            left: 2px;
+            color: var(--glacial-cyan);
+            font-size: 0.8rem;
+            text-shadow: var(--text-glow);
+        }
+
         /* Slide Subsystem Metrics */
         .subsystem-stats {
             display: flex;
@@ -1072,7 +1097,7 @@
                     <div class="subsystem-card">
                         <i class="fa-solid fa-microchip"></i>
                         <h3>Edge AI</h3>
-                        <p>Isolation Forest + post-hoc XAI on the laptop for offline anomaly detection and biological categorization.</p>
+                        <p>Isolation Forest + post-hoc XAI on the laptop for offline anomaly detection and biological categorisation.</p>
                     </div>
                     <div class="subsystem-card">
                         <i class="fa-solid fa-battery-three-quarters"></i>
@@ -1125,7 +1150,7 @@
                     <!-- RIGHT COLUMN: GUI IMAGE -->
                     <div class="bipartite-card">
                         <div class="bipartite-title">Mission Control GUI (Software)</div>
-                        <p style="font-size: 0.85rem; margin-bottom: 8px; color: rgba(226, 241, 248, 0.65);">High-performance data visualizer and offline analysis dashboard.</p>
+                        <p style="font-size: 0.85rem; margin-bottom: 8px; color: rgba(226, 241, 248, 0.65);">High-performance data visualiser and offline analysis dashboard.</p>
                         <img src="Mission Control GUI.png" alt="Mission Control GUI dashboard software" class="bipartite-gui-img">
                     </div>
                 </div>
@@ -1187,16 +1212,20 @@
                 <div>
                     <div class="glass-card" style="margin-bottom: 15px;">
                         <h3><i class="fa-solid fa-wifi"></i> Wireless Transfer Link</h3>
-                        <p style="font-size: 0.9rem; line-height: 1.4;">
-                            <strong>ESP-NOW Protocol</strong> · Selected over NFC/BLE for robust connectionless performance, low energy consumption, and long-range link. A USB bridge passes serial data to the host.
-                        </p>
+                        <ul class="subsystem-bullets">
+                            <li><strong>ESP-NOW Protocol</strong> · Connect-free link chosen for robust cold-weather data retrieval.</li>
+                            <li><strong>USB Bridge</strong> · Custom receiver dongle pipes serial data packets to the host laptop.</li>
+                            <li><strong>Energy Advantage</strong> · Minimises active RF Tx time, preserving battery life in deep winter.</li>
+                        </ul>
                     </div>
                     
                     <div class="glass-card">
                         <h3><i class="fa-solid fa-laptop-code"></i> Offline Dashboard GUI</h3>
-                        <p style="font-size: 0.9rem; line-height: 1.4;">
-                            <strong>CustomTkinter Application</strong> · Features real-time tables, inline <span class="highlight">[ANOMALY]</span> markers, matplotlib analysis charts, and safe CSV database exports.
-                        </p>
+                        <ul class="subsystem-bullets">
+                            <li><strong>CustomTkinter App</strong> · Sleek, lightweight interface built for rugged field operations.</li>
+                            <li><strong>Live Analytics</strong> · Real-time data parsing with instant <span class="highlight">[ANOMALY]</span> flags and indicators.</li>
+                            <li><strong>Data Export</strong> · Safe, secure CSV export mechanism with zero cloud dependencies.</li>
+                        </ul>
                     </div>
                     
                     <div class="verification-block">
@@ -1205,44 +1234,17 @@
                     </div>
                 </div>
                 
-                <div style="display: flex; flex-direction: column; gap: 15px; justify-content: center;">
-                    <div class="terminal-panel">
-                        <div class="terminal-header">
-                            <div class="terminal-dot red"></div>
-                            <div class="terminal-dot yellow"></div>
-                            <div class="terminal-dot green"></div>
-                            <div class="terminal-title">architecture.log</div>
-                        </div>
-                        <div class="terminal-body">
-                            <div class="blueprint-row">
-                                <i class="fa-solid fa-satellite-dish"></i>
-                                <div><strong>Base Telemetry</strong><span>ESP-NOW dongle bridges probe data over USB serial.</span></div>
-                            </div>
-                            <div class="blueprint-row">
-                                <i class="fa-solid fa-window-maximize"></i>
-                                <div><strong>Core Interface</strong><span>CustomTkinter offline dashboard for field work.</span></div>
-                            </div>
-                            <div class="blueprint-row">
-                                <i class="fa-solid fa-gears"></i>
-                                <div><strong>Background Tasks</strong><span>Asynchronous multi-threaded serial telemetry parser.</span></div>
-                            </div>
-                            <div class="blueprint-row">
-                                <i class="fa-solid fa-chart-line"></i>
-                                <div><strong>Live Analytics</strong><span>Real-time matplotlib optical and pressure graphs.</span></div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="subsystem-stats">
-                        <div class="stat-item">
+                <div style="display: flex; flex-direction: column; justify-content: center; height: 100%;">
+                    <div class="subsystem-stats" style="flex-wrap: wrap;">
+                        <div class="stat-item" style="min-width: 45%;">
                             <span class="stat-value">1.2%</span>
                             <span class="stat-label">Error Rate</span>
                         </div>
-                        <div class="stat-item">
+                        <div class="stat-item" style="min-width: 45%;">
                             <span class="stat-value">30 m</span>
                             <span class="stat-label">Range</span>
                         </div>
-                        <div class="stat-item">
+                        <div class="stat-item" style="min-width: 95%;">
                             <span class="stat-value">8 s</span>
                             <span class="stat-label">Wake Latency</span>
                         </div>
@@ -1272,16 +1274,20 @@
                 <div>
                     <div class="glass-card" style="margin-bottom: 15px;">
                         <h3><i class="fa-solid fa-hourglass-half"></i> Low-Power Firmware Lifecycle</h3>
-                        <p style="font-size: 0.9rem; line-height: 1.4;">
-                            <strong>4-State Loop</strong> · STANDBY → ARMED → LOGGING → OFFLOAD. RTC SRAM caches records across deep sleep cycles at <span class="highlight">16.8 µA</span> standby current. Sinking delay prevents surface pollution.
-                        </p>
+                        <ul class="subsystem-bullets">
+                            <li><strong>4-State Loop</strong> · Deterministic cycle transitions: STANDBY → ARMED → LOGGING → OFFLOAD.</li>
+                            <li><strong>SRAM Caching</strong> · Caches logging records in RTC memory to survive deep sleep resets.</li>
+                            <li><strong>Sinking Delay</strong> · Delays active logging to bypass noisy or polluted surface layers.</li>
+                        </ul>
                     </div>
                     
                     <div class="glass-card">
                         <h3><i class="fa-solid fa-brain"></i> Isolation Forest & XAI Classifier</h3>
-                        <p style="font-size: 0.9rem; line-height: 1.4;">
-                            <strong>Hybrid Intelligence</strong> · Unsupervised ML detects anomalies. A post-hoc deterministic ruleset interprets anomalies, classifying them into biological types or physical sensor artifacts.
-                        </p>
+                        <ul class="subsystem-bullets">
+                            <li><strong>Unsupervised ML</strong> · Isolation Forest detects outliers in multi-channel sensor streams.</li>
+                            <li><strong>Post-Hoc XAI</strong> · Explainable AI ruleset interprets decisions for field scientists.</li>
+                            <li><strong>Smart Separation</strong> · Easily separates true algal blooms from sensor noise or bubbles.</li>
+                        </ul>
                     </div>
                     
                     <div class="verification-block">
@@ -1330,16 +1336,20 @@
                 <div>
                     <div class="glass-card" style="margin-bottom: 15px;">
                         <h3><i class="fa-solid fa-car-battery"></i> Battery & Split-Rail Power</h3>
-                        <p style="font-size: 0.9rem; line-height: 1.4;">
-                            <strong>Lithium-SOCl₂ Chemistry</strong> · ER14505 cells drive the probe, buffered by a 1&nbsp;F supercapacitor. Power is split: LDO handles always-on tasks while sensor buses are switched via P-MOSFET.
-                        </p>
+                        <ul class="subsystem-bullets">
+                            <li><strong>ER14505 Chemistry</strong> · Polar-grade Li-SOCl₂ cells rated down to sub-zero temperatures.</li>
+                            <li><strong>1 F Supercapacitor</strong> · Buffers power rails during power-intensive ESP-NOW wireless bursts.</li>
+                            <li><strong>Split-Rail Isolation</strong> · P-MOSFET isolated sensor bus preserves energy during long sleep states.</li>
+                        </ul>
                     </div>
                     
                     <div class="glass-card">
                         <h3><i class="fa-solid fa-temperature-arrow-down"></i> Thermal Huddle Enclosure</h3>
-                        <p style="font-size: 0.9rem; line-height: 1.4;">
-                            <strong>Passive Insulation Shield</strong> · Layered foil and high-density foam trap regulator waste heat to maintain core battery warmth. A 20 mm RF window ensures wireless signal penetration.
-                        </p>
+                        <ul class="subsystem-bullets">
+                            <li><strong>Passive Shielding</strong> · Multilayer foil and high-density foam trap internal regulator waste heat.</li>
+                            <li><strong>Cold Resilience</strong> · Keeps the internal core temperature warm and safe above icy ambient.</li>
+                            <li><strong>RF Window</strong> · Strategic 20 mm window allows ESP-NOW signal transmission without metal blocking.</li>
+                        </ul>
                     </div>
                     
                     <div class="verification-block">
@@ -1388,16 +1398,20 @@
                 <div>
                     <div class="glass-card" style="margin-bottom: 15px;">
                         <h3><i class="fa-solid fa-bolt"></i> Chlorophyll Fluorometer</h3>
-                        <p style="font-size: 0.9rem; line-height: 1.4;">
-                            <strong>AS7341 Spectral Core</strong> · 11-channel optical array with a 10-step LED PWM excitation ramp. Measures chlorophyll fluorescence response down to a 1/32 spinach dilution.
-                        </p>
+                        <ul class="subsystem-bullets">
+                            <li><strong>AS7341 Spectral Core</strong> · 11-channel optical array captures detailed fluorescence wavelengths.</li>
+                            <li><strong>Excitation Ramp</strong> · 10-step LED PWM ramp stimulates precise chlorophyll response.</li>
+                            <li><strong>High Sensitivity</strong> · Resolves extreme low-concentration signals down to a 1/32 spinach dilution.</li>
+                        </ul>
                     </div>
                     
                     <div class="glass-card">
                         <h3><i class="fa-solid fa-shield"></i> Sealed Enclosure Housing</h3>
-                        <p style="font-size: 0.9rem; line-height: 1.4;">
-                            <strong>Tool-Free Access Design</strong> · 50 mm PVC tube sealed with double friction-fit O-rings (17% compression). Integrated 250 g lead ballast achieves negative buoyancy.
-                        </p>
+                        <ul class="subsystem-bullets">
+                            <li><strong>PVC Chassis</strong> · 50 mm rigid PVC chassis resists structural underwater pressures.</li>
+                            <li><strong>Double O-Rings</strong> · Double friction-fit O-rings with 17% compression prevent water ingress.</li>
+                            <li><strong>Lead Ballast</strong> · Integrated 250 g lead ballast provides reliable vertical dive descent rates.</li>
+                        </ul>
                     </div>
                     
                     <div class="verification-block">
