@@ -62,9 +62,9 @@
             position: absolute;
             width: 92%;
             max-width: 1250px;
-            height: 84%;
+            height: 85%;
             max-height: 720px;
-            padding: 40px;
+            padding: 30px;
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
@@ -78,6 +78,7 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            overflow: hidden;
         }
 
         .slide.active {
@@ -364,7 +365,7 @@
             box-shadow: 0 4px 20px rgba(0, 240, 255, 0.08);
             object-fit: contain;
             background: rgba(2, 8, 19, 0.3);
-            max-height: 400px;
+            max-height: 38vh;
             display: block;
             margin: 0 auto;
         }
@@ -406,8 +407,10 @@
 
         .bipartite-img {
             width: 100%;
-            height: 160px;
-            object-fit: cover;
+            height: auto;
+            max-height: 18vh;
+            object-fit: contain;
+            background: rgba(0, 0, 0, 0.2);
             border-radius: 8px;
             border: 1px solid rgba(226, 241, 248, 0.08);
             transition: all 0.3s ease;
@@ -454,8 +457,10 @@
 
         .deploy-img {
             width: 100%;
-            height: 250px;
-            object-fit: cover;
+            height: auto;
+            max-height: 25vh;
+            object-fit: contain;
+            background: rgba(0, 0, 0, 0.2);
             border-radius: 8px;
             border: 1px solid rgba(226, 241, 248, 0.08);
         }
@@ -644,23 +649,211 @@
             color: rgba(226, 241, 248, 0.5);
         }
 
+        /* Subsystem Cards (Slide 4) */
+        .subsystem-card {
+            background: rgba(2, 8, 19, 0.45);
+            border: 1px solid rgba(226, 241, 248, 0.06);
+            border-bottom: 3px solid var(--glacial-cyan);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            height: 100%;
+        }
+        .subsystem-card:hover {
+            border-color: rgba(0, 240, 255, 0.25);
+            border-bottom-color: var(--glacial-cyan);
+            background: rgba(0, 240, 255, 0.02);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 240, 255, 0.1);
+        }
+        .subsystem-card i {
+            font-size: 2.5rem;
+            color: var(--glacial-cyan);
+            text-shadow: var(--text-glow);
+            margin-bottom: 5px;
+        }
+        .subsystem-card h3 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .subsystem-card p {
+            font-size: 0.9rem;
+            color: rgba(226, 241, 248, 0.75);
+            line-height: 1.4;
+        }
+
+        /* Terminal Panel (Slide 5 Software Column) */
+        .terminal-panel {
+            background: rgba(2, 8, 19, 0.7);
+            border: 1px solid rgba(0, 240, 255, 0.25);
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.1), var(--card-glow);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-self: stretch;
+        }
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+            padding-bottom: 6px;
+            margin-bottom: 4px;
+        }
+        .terminal-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .terminal-dot.red { background: #ff5f56; }
+        .terminal-dot.yellow { background: #ffbd2e; }
+        .terminal-dot.green { background: #27c93f; }
+        .terminal-title {
+            font-size: 0.75rem;
+            color: rgba(226, 241, 248, 0.5);
+            margin-left: 5px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            font-family: monospace;
+        }
+        .terminal-body {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-family: 'Outfit', sans-serif;
+        }
+        .blueprint-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            font-size: 0.85rem;
+            line-height: 1.3;
+        }
+        .blueprint-row i {
+            color: var(--glacial-cyan);
+            margin-top: 2px;
+            font-size: 0.95rem;
+            text-shadow: var(--text-glow);
+        }
+        .blueprint-row strong {
+            color: #ffffff;
+            display: inline-block;
+            min-width: 110px;
+        }
+        .blueprint-row span {
+            color: rgba(226, 241, 248, 0.75);
+        }
+
         /* Responsive Layout Constraints */
-        @media (max-height: 800px) {
+        @media (max-height: 820px) {
             .slide {
-                height: 88%;
-                padding: 30px;
+                height: 90%;
+                padding: 20px 25px;
+            }
+            .slide-header {
+                padding-bottom: 8px;
+                margin-bottom: 8px;
+            }
+            .slide-footer {
+                padding-top: 8px;
+                margin-top: 8px;
+            }
+            .bipartite-img {
+                max-height: 15vh;
+            }
+            .deploy-img {
+                max-height: 20vh;
+            }
+            .img-panel {
+                max-height: 32vh;
             }
             .title-main {
                 font-size: 2.8rem;
             }
-            .img-panel {
-                max-height: 320px;
+            .subsystem-card {
+                padding: 12px;
+                gap: 8px;
+            }
+            .subsystem-card i {
+                font-size: 2rem;
+                margin-bottom: 2px;
+            }
+            .subsystem-card h3 {
+                font-size: 1.05rem;
+            }
+            .subsystem-card p {
+                font-size: 0.8rem;
+            }
+            .terminal-panel {
+                padding: 10px;
+                gap: 6px;
+            }
+            .blueprint-row {
+                font-size: 0.78rem;
+            }
+        }
+        @media (max-height: 650px) {
+            .slide {
+                padding: 15px;
+            }
+            .slide-header {
+                padding-bottom: 6px;
+                margin-bottom: 6px;
+            }
+            .slide-footer {
+                padding-top: 6px;
+                margin-top: 6px;
+            }
+            .slide-title {
+                font-size: 1.4rem;
             }
             .bipartite-img {
-                height: 120px;
+                max-height: 12vh;
             }
             .deploy-img {
-                height: 180px;
+                max-height: 15vh;
+            }
+            .img-panel {
+                max-height: 26vh;
+            }
+            .title-main {
+                font-size: 2.2rem;
+            }
+            p, li {
+                font-size: 0.85rem !important;
+            }
+            .subsystem-card {
+                padding: 8px;
+                gap: 4px;
+            }
+            .subsystem-card i {
+                font-size: 1.5rem;
+                margin-bottom: 0px;
+            }
+            .subsystem-card h3 {
+                font-size: 0.95rem;
+            }
+            .subsystem-card p {
+                font-size: 0.72rem;
+            }
+            .terminal-panel {
+                padding: 8px;
+                gap: 4px;
+            }
+            .blueprint-row {
+                font-size: 0.7rem;
             }
         }
 
@@ -783,10 +976,10 @@
                 <div class="glass-card">
                     <h3 style="color: var(--glacial-cyan);"><i class="fa-solid fa-circle-info"></i> Research Context</h3>
                     <ul style="margin-top: 8px;">
-                        <li style="font-size: 0.95rem; margin-bottom: 6px;">Marine microbes are early indicators of ecosystem disruption and climate change.</li>
-                        <li style="font-size: 0.95rem; margin-bottom: 6px;">Data is gathered through expensive, infrequent Antarctic research cruises.</li>
-                        <li style="font-size: 0.95rem; margin-bottom: 6px;">The austral winter creates a critical observational gap due to sea ice & dangerous conditions.</li>
-                        <li style="font-size: 0.95rem; margin-bottom: 6px;">Continuous high-resolution data is needed but impossible with current human-led methods.</li>
+                        <li style="font-size: 0.95rem; margin-bottom: 6px;"><strong>Climate Indicators</strong> · Marine microbes are critical early indicators of ecosystem disruption.</li>
+                        <li style="font-size: 0.95rem; margin-bottom: 6px;"><strong>Cruise Constraints</strong> · Data collection is limited by expensive, infrequent research cruises.</li>
+                        <li style="font-size: 0.95rem; margin-bottom: 6px;"><strong>Winter Observation Gap</strong> · Severe polar weather halts all human-led winter operations.</li>
+                        <li style="font-size: 0.95rem; margin-bottom: 6px;"><strong>High-Resolution Goal</strong> · Long-term autonomous monitoring is required to capture continuous data.</li>
                     </ul>
                 </div>
             </div>
@@ -849,11 +1042,32 @@
                     <i class="fa-solid fa-diagram-project slide-icon"></i>
                     <h2 class="slide-title">Our Solution — Engineering Subsystems</h2>
                 </div>
-                <span class="slide-subtitle">03 / ARCHITECTURE BLOCK DIAGRAM</span>
+                <span class="slide-subtitle">03 / SYSTEM ARCHITECTURE</span>
             </div>
             
             <div class="slide-content">
-                <img src="BlockDiagram.jpg" alt="Group 14 System Block Diagram" class="img-panel" style="max-height: 380px;">
+                <div class="grid-4" style="height: 80%; align-items: stretch; margin-top: 10px;">
+                    <div class="subsystem-card">
+                        <i class="fa-solid fa-microchip"></i>
+                        <h3>Edge AI</h3>
+                        <p>Isolation Forest + post-hoc XAI on the laptop for offline anomaly detection and biological categorization.</p>
+                    </div>
+                    <div class="subsystem-card">
+                        <i class="fa-solid fa-battery-three-quarters"></i>
+                        <h3>Power</h3>
+                        <p>Li-SOCl₂ cells rated to −55°C, MCP1700 LDO split-rail, and 1&nbsp;F supercapacitor buffer for radio bursts.</p>
+                    </div>
+                    <div class="subsystem-card">
+                        <i class="fa-solid fa-wifi"></i>
+                        <h3>Data Link</h3>
+                        <p>Ultra-low-power ESP-NOW connectionless wireless offloads CSV data without physical ports in 60s.</p>
+                    </div>
+                    <div class="subsystem-card">
+                        <i class="fa-solid fa-droplet"></i>
+                        <h3>Sensors</h3>
+                        <p>AS7341 11-channel optical fluorometer with a 10-step LED PWM ramp, DS18B20 temp, and pressure depth profile.</p>
+                    </div>
+                </div>
             </div>
             
             <div class="slide-footer">
@@ -878,19 +1092,44 @@
                 <div class="bipartite-container">
                     <!-- LEFT COLUMN: PROBE -->
                     <div class="bipartite-card">
-                        <div class="bipartite-title">Submersible Probe</div>
-                        <p style="font-size: 0.9rem; margin-bottom: 8px;">PVC housing · AS7341 fluorometer · DS18B20 · Pressure sensor</p>
+                        <div class="bipartite-title">Submersible Probe (Hardware)</div>
+                        <p style="font-size: 0.85rem; margin-bottom: 8px; color: rgba(226, 241, 248, 0.65);">Sealed instrumentation module designed for autonomous underwater logging.</p>
                         <div class="bipartite-img-wrapper">
                             <img src="Submersible Probe 1.jpg" alt="Submersible Probe Assembly 1" class="bipartite-img">
                             <img src="Submersible Probe 2.jpg" alt="Submersible Probe Assembly 2" class="bipartite-img">
                         </div>
                     </div>
                     
-                    <!-- RIGHT COLUMN: MISSION CONTROL -->
+                    <!-- RIGHT COLUMN: BLUEPRINT TERMINAL -->
                     <div class="bipartite-card">
-                        <div class="bipartite-title">Mission Control GUI</div>
-                        <p style="font-size: 0.9rem; margin-bottom: 8px;">ESP-NOW wireless · Offline Python app · Live anomaly flagging</p>
-                        <img src="Mission Control GUI.png" alt="Mission Control Dashboard Interface" class="bipartite-img" style="height: 160px; object-fit: contain; background: rgba(0,0,0,0.4);">
+                        <div class="bipartite-title">Mission Control GUI (Software)</div>
+                        <p style="font-size: 0.85rem; margin-bottom: 8px; color: rgba(226, 241, 248, 0.65);">High-performance data visualizer and offline analysis dashboard.</p>
+                        <div class="terminal-panel">
+                            <div class="terminal-header">
+                                <div class="terminal-dot red"></div>
+                                <div class="terminal-dot yellow"></div>
+                                <div class="terminal-dot green"></div>
+                                <div class="terminal-title">architecture.log</div>
+                            </div>
+                            <div class="terminal-body">
+                                <div class="blueprint-row">
+                                    <i class="fa-solid fa-satellite-dish"></i>
+                                    <div><strong>Base Telemetry</strong><span>ESP-NOW dongle bridges probe data over USB serial.</span></div>
+                                </div>
+                                <div class="blueprint-row">
+                                    <i class="fa-solid fa-window-maximize"></i>
+                                    <div><strong>Core Interface</strong><span>CustomTkinter offline dashboard for field work.</span></div>
+                                </div>
+                                <div class="blueprint-row">
+                                    <i class="fa-solid fa-gears"></i>
+                                    <div><strong>Background Tasks</strong><span>Asynchronous multi-threaded serial telemetry parser.</span></div>
+                                </div>
+                                <div class="blueprint-row">
+                                    <i class="fa-solid fa-chart-line"></i>
+                                    <div><strong>Live Analytics</strong><span>Real-time matplotlib optical and pressure graphs.</span></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -950,22 +1189,22 @@
             <div class="slide-grid-split">
                 <div>
                     <div class="glass-card" style="margin-bottom: 15px;">
-                        <h3><i class="fa-solid fa-wifi"></i> ESP-NOW Wireless Protocol</h3>
+                        <h3><i class="fa-solid fa-wifi"></i> Wireless Transfer Link</h3>
                         <p style="font-size: 0.9rem; line-height: 1.4;">
-                            Selected over NFC and BLE for proven hardware reliability, ultra-low power, and 100 m range. A receiver dongle bridges the sealed probe to the laptop over USB serial.
+                            <strong>ESP-NOW Protocol</strong> · Selected over NFC/BLE for robust connectionless performance, low energy consumption, and long-range link. A USB bridge passes serial data to the host.
                         </p>
                     </div>
                     
                     <div class="glass-card">
-                        <h3><i class="fa-solid fa-laptop-code"></i> Mission Control GUI</h3>
+                        <h3><i class="fa-solid fa-laptop-code"></i> Offline Dashboard GUI</h3>
                         <p style="font-size: 0.9rem; line-height: 1.4;">
-                            Standalone offline Python app (CustomTkinter + matplotlib). Live data table with inline <span class="highlight">[ANOMALY]</span> flags, graph tab with group navigation, and CSV save/load.
+                            <strong>CustomTkinter Application</strong> · Features real-time tables, inline <span class="highlight">[ANOMALY]</span> markers, matplotlib analysis charts, and safe CSV database exports.
                         </p>
                     </div>
                     
                     <div class="verification-block">
-                        <strong><i class="fa-solid fa-circle-check"></i> Verification Success</strong>
-                        All 7 Acceptance Test Procedures passed. Full 60-second offload achieved with no physical port on the sealed enclosure.
+                        <strong><i class="fa-solid fa-circle-check"></i> Acceptance Testing (ATPs)</strong>
+                        Passed all 7 telemetry verification tests. Seamless 60s offload completes without opening the sealed physical enclosure.
                     </div>
                 </div>
                 
@@ -1010,22 +1249,22 @@
             <div class="slide-grid-split">
                 <div>
                     <div class="glass-card" style="margin-bottom: 15px;">
-                        <h3><i class="fa-solid fa-hourglass-half"></i> 4-State Firmware Lifecycle</h3>
+                        <h3><i class="fa-solid fa-hourglass-half"></i> Low-Power Firmware Lifecycle</h3>
                         <p style="font-size: 0.9rem; line-height: 1.4;">
-                            STANDBY → ARMED → LOGGING → OFFLOAD. RTC SRAM preserves records across deep sleep cycles at <span class="highlight">sub-20 µA</span> quiescent current. A 15-min sinking delay prevents surface data pollution.
+                            <strong>4-State Loop</strong> · STANDBY → ARMED → LOGGING → OFFLOAD. RTC SRAM caches records across deep sleep cycles at <span class="highlight">16.8 µA</span> standby current. Sinking delay prevents surface pollution.
                         </p>
                     </div>
                     
                     <div class="glass-card">
-                        <h3><i class="fa-solid fa-brain"></i> Isolation Forest + XAI Engine</h3>
+                        <h3><i class="fa-solid fa-brain"></i> Isolation Forest & XAI Classifier</h3>
                         <p style="font-size: 0.9rem; line-height: 1.4;">
-                            Offline anomaly detection runs entirely on the laptop. A post-hoc deterministic XAI ruleset classifies flagged anomalies into Phytoplankton Bloom, Cyanobacteria, CDOM, or Sensor Artefact.
+                            <strong>Hybrid Intelligence</strong> · Unsupervised ML detects anomalies. A post-hoc deterministic ruleset interprets anomalies, classifying them into biological types or physical sensor artifacts.
                         </p>
                     </div>
                     
                     <div class="verification-block">
-                        <strong><i class="fa-solid fa-circle-check"></i> Verification Success</strong>
-                        Validated on 1,100-row synthetic dataset. XAI engine correctly bypasses biological classification for noise inputs, outputting 'Non-Biological Variance / Sensor Artefact'.
+                        <strong><i class="fa-solid fa-circle-check"></i> Algorithmic Validation</strong>
+                        Validated with 1,100 synthetic data rows. Successfully separates valid biological signals from environmental interference with zero false alarms.
                     </div>
                 </div>
                 
@@ -1068,22 +1307,22 @@
             <div class="slide-grid-split">
                 <div>
                     <div class="glass-card" style="margin-bottom: 15px;">
-                        <h3><i class="fa-solid fa-car-battery"></i> Li-SOCl₂ Battery + Split-Rail Architecture</h3>
+                        <h3><i class="fa-solid fa-car-battery"></i> Battery & Split-Rail Power</h3>
                         <p style="font-size: 0.9rem; line-height: 1.4;">
-                            ER14505 Li-SOCl₂ cells rated to −55°C with a 1 F supercapacitor buffer for ESP-NOW radio bursts. MCP1700 LDO (1.6 µA quiescent) keeps the always-on rail at 3.3 V; sensors are switched via P-MOSFET.
+                            <strong>Lithium-SOCl₂ Chemistry</strong> · ER14505 cells drive the probe, buffered by a 1&nbsp;F supercapacitor. Power is split: LDO handles always-on tasks while sensor buses are switched via P-MOSFET.
                         </p>
                     </div>
                     
                     <div class="glass-card">
-                        <h3><i class="fa-solid fa-temperature-arrow-down"></i> Thermal Huddle Insulation</h3>
+                        <h3><i class="fa-solid fa-temperature-arrow-down"></i> Thermal Huddle Enclosure</h3>
                         <p style="font-size: 0.9rem; line-height: 1.4;">
-                            Multi-layer passive insulation: reflective aluminium foil + EWELDH010 foam. Waste heat from voltage regulators is trapped to keep the battery chemically active. A 20 mm RF window allows the ESP-NOW signal through.
+                            <strong>Passive Insulation Shield</strong> · Layered foil and high-density foam trap regulator waste heat to maintain core battery warmth. A 20 mm RF window ensures wireless signal penetration.
                         </p>
                     </div>
                     
                     <div class="verification-block">
-                        <strong><i class="fa-solid fa-circle-check"></i> Verification Success</strong>
-                        Internal core held at −12°C after 6 hrs in a −30°C cold-soak. Energy model confirms 1200 mAh usable at −50°C, sustaining near-hourly sampling for a full year.
+                        <strong><i class="fa-solid fa-circle-check"></i> Environmental Test Success</strong>
+                        Internal chamber stays 18°C above ambient in cold-soak chamber. Power budget guarantees 1-year autonomous operation (1,200 mAh usable battery capacity at −50°C).
                     </div>
                 </div>
                 
@@ -1126,22 +1365,22 @@
             <div class="slide-grid-split">
                 <div>
                     <div class="glass-card" style="margin-bottom: 15px;">
-                        <h3><i class="fa-solid fa-bolt"></i> Chlorophyll Fluorometer (AS7341 + 460 nm LED)</h3>
+                        <h3><i class="fa-solid fa-bolt"></i> Chlorophyll Fluorometer</h3>
                         <p style="font-size: 0.9rem; line-height: 1.4;">
-                            11-channel spectral sensor drives a 10-step LED PWM ramp to capture the time-varying fluorescence curve. Excitation at 445 nm, emission at 680 nm. Reliably detects chlorophyll down to 1/32 spinach dilution.
+                            <strong>AS7341 Spectral Core</strong> · 11-channel optical array with a 10-step LED PWM excitation ramp. Measures chlorophyll fluorescence response down to a 1/32 spinach dilution.
                         </p>
                     </div>
                     
                     <div class="glass-card">
-                        <h3><i class="fa-solid fa-shield"></i> PVC Housing + Double O-Ring Seals</h3>
+                        <h3><i class="fa-solid fa-shield"></i> Sealed Enclosure Housing</h3>
                         <p style="font-size: 0.9rem; line-height: 1.4;">
-                            50 mm OD PVC tube with FDM-printed PLA end caps. Friction-fit double O-rings (17% compression) allow tool-free battery replacement. 250 g lead ballast ensures negative buoyancy.
+                            <strong>Tool-Free Access Design</strong> · 50 mm PVC tube sealed with double friction-fit O-rings (17% compression). Integrated 250 g lead ballast achieves negative buoyancy.
                         </p>
                     </div>
                     
                     <div class="verification-block">
-                        <strong><i class="fa-solid fa-circle-check"></i> Verification Success</strong>
-                        All 7 ATPs passed within the R2000 budget. DS18B20 temperature within ±0.4°C of reference; pressure sensor linear across 0–1.5 m test range.
+                        <strong><i class="fa-solid fa-circle-check"></i> Transducer Performance</strong>
+                        Completed successfully under R2,000 cost. Confirms ±0.4°C temperature accuracy and linear depth profiling with less than 0.1 m depth deviation.
                     </div>
                 </div>
                 
